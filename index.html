@@ -564,6 +564,41 @@
   <div class="mb-body" id="mbDetailBody"></div>
 </div>
 
+
+<!-- ================= ECR BULK PASTE ================= -->
+<div id="ecPasteOverlay" hidden style="position:fixed; inset:0; z-index:120; background:rgba(20,41,63,.55); display:none; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:560px; padding:24px;">
+    <div style="font-family:'Lora',serif; font-weight:600; font-size:16px; color:var(--navy-deep);">I-paste ang listahan ng mag-aaral</div>
+    <p style="font-size:12px; color:var(--ink-soft); line-height:1.65; margin:6px 0 16px;">
+      Isang pangalan kada linya. Puwedeng direktang i-paste mula sa Excel o Word.
+      Awtomatikong tinatanggal ang numero sa unahan (<code>1.</code>, <code>1)</code>, <code>1&nbsp;&#8594;</code>)
+      at ang mga blangkong linya. Puwede ring gamitin ang <code>MALE</code> at <code>FEMALE</code>
+      bilang pamagat sa loob mismo ng listahan para hatiin ang kasarian.
+    </p>
+
+    <div class="field" style="margin-bottom:12px;">
+      <label>Kasarian ng mga pangalang ito</label>
+      <select id="ecPasteSex">
+        <option value="MALE">Male</option>
+        <option value="FEMALE">Female</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Mga pangalan</label>
+      <textarea id="ecPasteBox" rows="10" placeholder="ALVIAR, MAC ALISTAIR S.&#10;BALUYO, ALEXIS D.&#10;CALLEJA, GEORGE IAN D."
+        style="width:100%; font-family:inherit; font-size:13px; line-height:1.6; resize:vertical;"></textarea>
+    </div>
+
+    <p id="ecPastePreview" style="font-size:11.5px; color:var(--ink-soft); margin:10px 0 0; min-height:17px;"></p>
+
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn" id="ecPasteCancel">Kanselahin</button>
+      <button class="btn btn-primary" id="ecPasteAdd">Idagdag lahat</button>
+    </div>
+  </div>
+</div>
+
 <!-- ================= STATUS DIALOG ================= -->
 <div id="statusOverlay" hidden style="position:fixed; inset:0; z-index:120; background:rgba(20,41,63,.55); display:none; align-items:center; justify-content:center; padding:20px;">
   <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:420px; padding:24px 24px 20px;">
@@ -1167,6 +1202,8 @@
               <option value="FEMALE">Female</option>
             </select>
             <button class="btn btn-primary btn-sm" id="btnAddEcStudent">&#43; Idagdag</button>
+            <button class="btn btn-sm" id="btnPasteEcStudents">&#128203; I-paste ang listahan</button>
+            <button class="btn btn-sm" id="btnFromMasterlist">&#128228; Kunin sa Masterlist</button>
           </div>
         </div>
 
@@ -2096,6 +2133,32 @@ function calcAge(birthdateStr){
   return age >= 0 ? age : '';
 }
 
+/* Pinapanatiling alphabetical ang Masterlist: males muna, tapos females.
+   Positional lamang ang ID chip (M001, F001) — kinukuwenta ito sa render —
+   kaya awtomatikong sumusunod ito sa bagong ayos, gaya ng nakagawian sa
+   mga DepEd form. Ang lahat ng grado at attendance ay nakatali sa panloob
+   na id ng bata, hindi sa pwesto, kaya walang nawawala. */
+function sortStudents(){
+  const clean = v => (v || '').replace(/\s+/g,' ').trim();
+  const cmp = (a, b) => a.localeCompare(b, 'en', { sensitivity:'base', numeric:true });
+  const byName = (a, b) => {
+    // Blangkong bagong hilera: sa dulo muna, hanggang matypan.
+    const emptyA = !clean(a.lastName) && !clean(a.firstName);
+    const emptyB = !clean(b.lastName) && !clean(b.firstName);
+    if(emptyA && emptyB) return 0;
+    if(emptyA) return 1;
+    if(emptyB) return -1;
+    // APELYIDO ang pangunahin. Hiwalay na ikinukumpara ang bawat bahagi
+    // para hindi makaapekto ang espasyo o kuwit sa pagkakasunod —
+    // dapat mauna ang "Cruz" kaysa "Cruzado".
+    return cmp(clean(a.lastName),   clean(b.lastName))
+        || cmp(clean(a.firstName),  clean(b.firstName))
+        || cmp(clean(a.middleName), clean(b.middleName));
+  };
+  students = students.filter(s => s.sex === 'MALE').sort(byName)
+      .concat(students.filter(s => s.sex !== 'MALE').sort(byName));
+}
+
 function addStudent(sex){
   students.push({
     id: uid(), sex, lastName:'', firstName:'', middleName:'', nameExt:'',
@@ -2278,6 +2341,19 @@ function renderMasterlist(){
       const bind = (cls, field) => {
         tr.querySelector(cls).addEventListener('input', (e)=> updateStudent(s.id, field, e.target.value));
       };
+      // Pagkatapos i-type ang pangalan, saka inaayos ang pagkakasunod —
+      // hindi habang nagta-type, para hindi tumalon ang hilera sa ilalim mo.
+      const resortOnBlur = (cls) => {
+        tr.querySelector(cls).addEventListener('change', ()=>{
+          const before = students.map(x => x.id).join();
+          sortStudents();
+          if(students.map(x => x.id).join() !== before){
+            saveStudents(students);
+            renderMasterlist();
+          }
+        });
+      };
+      resortOnBlur('.f-lastName'); resortOnBlur('.f-firstName'); resortOnBlur('.f-middleName');
       bind('.f-lastName','lastName'); bind('.f-firstName','firstName');
       bind('.f-middleName','middleName'); bind('.f-nameExt','nameExt');
       bind('.f-lrn','lrn'); bind('.f-birthdate','birthdate'); bind('.f-dateAdmission','dateAdmission');
@@ -2800,11 +2876,13 @@ document.getElementById('btnConfirmImport').addEventListener('click', ()=>{
       sex: rec.sex || 'MALE',
       lastName: rec.lastName, firstName: rec.firstName, middleName: rec.middleName, nameExt: rec.nameExt,
       lrn: rec.lrn, birthdate: rec.birthdate,
-      dateAdmission: rec.dateAdmission || new Date().toISOString().slice(0,10)
+      dateAdmission: rec.dateAdmission || new Date().toISOString().slice(0,10),
+      status:'ACTIVE', statusDate:'', statusNote:'', email:''
     });
     imported++;
   });
 
+  sortStudents();
   saveStudents(students);
   document.getElementById('importPanel').hidden = true;
   renderMasterlist();
@@ -6397,6 +6475,8 @@ function ecNormalizeRecord(r){
     legacyItems.slice(0,5).forEach(i=> r.wwItems.push({ id: i.id, name: i.name, hps: i.hps }));
     delete r.components; delete r.items;
   }
+  // Inaayos din ang mga dating naitala, bago pa nagkaroon ng auto-sort.
+  if(typeof ecSortStudents === 'function') ecSortStudents(r);
   return r;
 }
 Object.keys(eclassRecords).forEach(id=> ecNormalizeRecord(eclassRecords[id]));
@@ -6571,6 +6651,7 @@ document.getElementById('btnAddEcStudent').addEventListener('click', ()=>{
   const sex = document.getElementById('ecNewStudentSex').value;
   if(!name){ showToast('Maglagay ng pangalan.', true); return; }
   r.students.push({ id: newEcStudentId(), name, sex });
+  ecSortStudents(r);
   saveEclass(); flashSaved();
   document.getElementById('ecNewStudentName').value = '';
   renderEcScoreTable();
@@ -6604,9 +6685,48 @@ function ecInitialGrade(r, studentId){
 function renderEcScoreTable(){
   const r = eclassRecords[currentEclassId];
   const table = document.getElementById('ecScoreTable');
-  const hasData = r.students.length > 0 && (r.wwItems.length + r.ptItems.length + r.qaItems.length) > 0;
-  document.getElementById('ecScoreEmptyState').hidden = hasData;
-  if(!hasData){ table.innerHTML = ''; return; }
+  const hasItems = (r.wwItems.length + r.ptItems.length + r.qaItems.length) > 0;
+  const hasStudents = r.students.length > 0;
+  // Ipakita ang empty state kapag talagang wala pang anuman.
+  document.getElementById('ecScoreEmptyState').hidden = hasStudents || hasItems;
+  if(!hasStudents){ table.innerHTML = ''; return; }
+
+  /* May mga estudyante na pero wala pang gawain: ipakita pa rin ang
+     listahan para makita agad ng guro kung sino ang naidagdag. */
+  if(!hasItems){
+    const roster = (list, label) => {
+      if(!list.length) return '';
+      return `<tr class="section-row"><td colspan="3">${label}</td></tr>`
+        + list.map((s, i)=>`<tr>
+            <td style="width:30px;">${i+1}</td>
+            <td>${escapeHtml(s.name)}</td>
+            <td style="width:42px; text-align:center;">
+              <button class="icon-btn" data-ec-del="${s.id}" title="Alisin si ${escapeHtml(s.name)}">&#128465;</button>
+            </td></tr>`).join('');
+    };
+    table.innerHTML = `<thead><tr>
+        <th style="width:30px;">No.</th><th>Estudyante</th><th style="width:42px;"></th>
+      </tr></thead><tbody>
+        ${roster(r.students.filter(s=>s.sex==='MALE'), 'Male')}
+        ${roster(r.students.filter(s=>s.sex==='FEMALE'), 'Female')}
+        <tr><td colspan="3" style="text-align:center; color:var(--ink-soft); font-size:12px; padding:12px;">
+          Magdagdag ng Written Work, Performance Task, o Quarterly Assessment sa itaas
+          para makapag-encode ng marka.
+        </td></tr>
+      </tbody>`;
+    table.querySelectorAll('[data-ec-del]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const sid = btn.dataset.ecDel;
+        const s = r.students.find(x => x.id === sid);
+        if(!s || !confirm(`Aalisin si ${s.name} sa E-Class Record na ito. Ituloy?`)) return;
+        r.students = r.students.filter(x => x.id !== sid);
+        delete r.scores[sid];
+        saveEclass(); flashSaved(); renderEcScoreTable();
+        showToast(`Naalis si ${s.name}.`);
+      });
+    });
+    return;
+  }
 
   const info = ecSubjectTypeInfo(r.subjectType);
   let head1 = `<th rowspan="2" style="width:30px;">No.</th><th rowspan="2" style="min-width:150px;">Estudyante</th>`;
@@ -6619,6 +6739,7 @@ function renderEcScoreTable(){
     head2 += `<th style="width:56px; text-align:center;">%</th>`;
   });
   head1 += `<th rowspan="2" style="width:60px;">Initial</th><th rowspan="2" style="width:60px;">Transmuted</th>`;
+  head1 += `<th rowspan="2" style="width:42px;"></th>`;
 
   function studentRow(s, i){
     if(!r.scores[s.id]) r.scores[s.id] = {};
@@ -6637,6 +6758,7 @@ function renderEcScoreTable(){
     const final = ecOfficialTransmute(initial);
     row += `<td style="text-align:center; font-weight:600;" data-initial="${s.id}">${initial!==null ? initial.toFixed(1) : '—'}</td>`;
     row += `<td style="text-align:center; font-weight:700; color:var(--navy-deep);" data-final="${s.id}">${final ?? '—'}</td>`;
+    row += `<td style="text-align:center;"><button class="icon-btn" data-ec-del="${s.id}" title="Alisin si ${escapeHtml(s.name)}">&#128465;</button></td>`;
     return `<tr>${row}</tr>`;
   }
 
@@ -6648,6 +6770,24 @@ function renderEcScoreTable(){
   females.forEach((s,i)=> body += studentRow(s,i));
 
   table.innerHTML = `<thead><tr>${head1}</tr><tr>${head2}</tr></thead><tbody>${body}</tbody>`;
+
+  table.querySelectorAll('[data-ec-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const sid = btn.dataset.ecDel;
+      const s = r.students.find(x => x.id === sid);
+      if(!s) return;
+      const hasScores = r.scores[sid] && Object.values(r.scores[sid]).some(v => v !== '' && v !== null && v !== undefined);
+      const warn = hasScores
+        ? `Aalisin si ${s.name} pati ang lahat ng naitalang marka niya. Ituloy?`
+        : `Aalisin si ${s.name} sa E-Class Record na ito. Ituloy?`;
+      if(!confirm(warn)) return;
+      r.students = r.students.filter(x => x.id !== sid);
+      delete r.scores[sid];                 // huwag iwanang ulila ang marka
+      saveEclass(); flashSaved();
+      renderEcScoreTable();
+      showToast(`Naalis si ${s.name}.`);
+    });
+  });
 
   table.querySelectorAll('input[data-sid]').forEach(inp=>{
     inp.addEventListener('input', (e)=>{
@@ -7060,6 +7200,145 @@ document.getElementById('btnDownloadRatingSheet').addEventListener('click', asyn
 
 
 
+
+
+/* =========================================================
+   ECR — maramihang pagdagdag ng mag-aaral
+   ========================================================= */
+
+/* Hinahati ang na-paste na teksto. Kinikilala ang MALE/FEMALE
+   bilang pamagat, at nililinis ang numero sa unahan ng linya. */
+/* Pinapanatiling nakaayos ang listahan: males muna, tapos females,
+   bawat grupo ay alphabetical. Ang marka ay nakatali sa id ng bata,
+   hindi sa pwesto niya — kaya kasama nilang lumilipat ang data. */
+function ecSortStudents(r){
+  if(!r || !r.students) return;
+  // Ang pangalan dito ay iisang string ("APELYIDO, PANGALAN"). Hinahati
+  // ito sa kuwit para ang apelyido ang pangunahing batayan — kung hindi,
+  // maaaring mauna ang "CRUZADO" kaysa "CRUZ".
+  const parts = s => {
+    const i = (s.name || '').indexOf(',');
+    return i === -1
+      ? { last: (s.name || '').trim(), rest: '' }
+      : { last: s.name.slice(0, i).trim(), rest: s.name.slice(i + 1).trim() };
+  };
+  const cmp = (a, b) => a.localeCompare(b, 'en', { sensitivity:'base', numeric:true });
+  const byName = (a, b) => {
+    const A = parts(a), B = parts(b);
+    return cmp(A.last, B.last) || cmp(A.rest, B.rest);
+  };
+  r.students = r.students.filter(s => s.sex === 'MALE').sort(byName)
+        .concat(r.students.filter(s => s.sex !== 'MALE').sort(byName));
+}
+
+function ecParseNameList(text, defaultSex){
+  const out = [];
+  let sex = defaultSex;
+  String(text || '').split(/\r?\n/).forEach(raw=>{
+    let line = raw.replace(/\t/g, ' ').trim();
+    if(!line) return;
+
+    // Pamagat ng kasarian sa loob mismo ng listahan
+    const head = line.replace(/[^A-Za-z]/g, '').toUpperCase();
+    if(head === 'MALE' || head === 'MALES' || head === 'LALAKI'){ sex = 'MALE'; return; }
+    if(head === 'FEMALE' || head === 'FEMALES' || head === 'BABAE'){ sex = 'FEMALE'; return; }
+
+    // Numero sa unahan: "1." / "1)" / "1 -" / "1 "
+    line = line.replace(/^\s*\d+\s*[.)\-]?\s+/, '').trim();
+    if(!line) return;
+    // Kung puro numero lang ang linya, laktawan
+    if(/^\d+$/.test(line)) return;
+
+    out.push({ name: line.replace(/\s+/g, ' ').toUpperCase(), sex });
+  });
+  return out;
+}
+
+/* Hindi na idinadagdag ang pangalang nandoon na. */
+function ecAddStudents(list){
+  const r = eclassRecords[currentEclassId];
+  if(!r) return { added: 0, skipped: 0 };
+  const existing = new Set(r.students.map(s => s.name.toUpperCase().replace(/\s+/g,' ').trim()));
+  let added = 0, skipped = 0;
+  list.forEach(item=>{
+    const key = item.name.toUpperCase().replace(/\s+/g,' ').trim();
+    if(existing.has(key)){ skipped++; return; }
+    existing.add(key);
+    r.students.push({ id: newEcStudentId(), name: item.name, sex: item.sex });
+    added++;
+  });
+  if(added){ ecSortStudents(r); saveEclass(); flashSaved(); renderEcScoreTable(); }
+  return { added, skipped };
+}
+
+function ecPasteRefresh(){
+  const sex = document.getElementById('ecPasteSex').value;
+  const list = ecParseNameList(document.getElementById('ecPasteBox').value, sex);
+  const m = list.filter(x=>x.sex === 'MALE').length;
+  const f = list.length - m;
+  const el = document.getElementById('ecPastePreview');
+  el.textContent = list.length
+    ? `${list.length} pangalan ang nakita — ${m} male, ${f} female.`
+    : '';
+}
+
+function openEcPaste(){
+  if(!currentEclassId){ showToast('Pumili muna ng E-Class Record.', true); return; }
+  document.getElementById('ecPasteBox').value = '';
+  document.getElementById('ecPastePreview').textContent = '';
+  const ov = document.getElementById('ecPasteOverlay');
+  ov.hidden = false; ov.style.display = 'flex';
+  setTimeout(()=> document.getElementById('ecPasteBox').focus(), 30);
+}
+function closeEcPaste(){
+  const ov = document.getElementById('ecPasteOverlay');
+  ov.hidden = true; ov.style.display = 'none';
+}
+
+(function(){
+  const box = document.getElementById('ecPasteBox');
+  box.addEventListener('input', ecPasteRefresh);
+  document.getElementById('ecPasteSex').addEventListener('change', ecPasteRefresh);
+  document.getElementById('ecPasteCancel').addEventListener('click', closeEcPaste);
+  document.getElementById('ecPasteOverlay').addEventListener('click', (e)=>{
+    if(e.target.id === 'ecPasteOverlay') closeEcPaste();
+  });
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && document.getElementById('ecPasteOverlay').style.display === 'flex') closeEcPaste();
+  });
+
+  document.getElementById('btnPasteEcStudents').addEventListener('click', openEcPaste);
+
+  document.getElementById('ecPasteAdd').addEventListener('click', ()=>{
+    const sex = document.getElementById('ecPasteSex').value;
+    const list = ecParseNameList(box.value, sex);
+    if(!list.length){ showToast('Walang nakitang pangalan.', true); return; }
+    const res = ecAddStudents(list);
+    closeEcPaste();
+    showToast(res.skipped
+      ? `Naidagdag ang ${res.added}. Nilaktawan ang ${res.skipped} na nandoon na.`
+      : `Naidagdag ang ${res.added} na mag-aaral.`);
+  });
+
+  /* Kunin ang buong klase mula sa Masterlist — males muna, tapos females. */
+  document.getElementById('btnFromMasterlist').addEventListener('click', ()=>{
+    if(!currentEclassId){ showToast('Pumili muna ng E-Class Record.', true); return; }
+    if(!students.length){ showToast('Walang laman ang Masterlist.', true); return; }
+    const pick = sex => students
+      .filter(s => s.sex === sex && isActiveStatus(s))
+      .map(s => ({
+        name: `${s.lastName || ''}, ${s.firstName || ''} ${s.middleName ? s.middleName.charAt(0) + '.' : ''}`
+                .replace(/\s+/g,' ').trim().toUpperCase(),
+        sex
+      }))
+      .filter(x => x.name && x.name !== ',');
+    const res = ecAddStudents(pick('MALE').concat(pick('FEMALE')));
+    showToast(res.added
+      ? (res.skipped ? `Naidagdag ang ${res.added}. Nilaktawan ang ${res.skipped} na nandoon na.`
+                     : `Naidagdag ang ${res.added} na mag-aaral mula sa Masterlist.`)
+      : 'Nandoon na lahat ng mag-aaral.');
+  });
+})();
 
 /* =========================================================
    MOBILE PREVIEW
@@ -7717,6 +7996,7 @@ document.getElementById('btnPublishCards').addEventListener('click', async ()=>{
 });
 
 /* Initial render */
+sortStudents();
 renderMasterlist();
 maybeCreateDailyVersion();
 applyViewMode();
