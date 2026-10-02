@@ -8221,15 +8221,53 @@ async function secFindDoc(){
   if(!fbAvailable || !currentUser) return null;
   try{
     const snap = await fbDb.collection('class_attendance')
-      .where('ownerUid', '==', currentUser.uid).limit(1).get();
+      .where('ownerUid', '==', currentUser.uid).get();
     if(snap.empty) return null;
-    const doc = snap.docs[0];
-    // Ibalik sa setup ang tunay na id para tugma ang susunod na pagsulat.
-    if(setupData.secretaryClassId !== doc.id){
-      setupData.secretaryClassId = doc.id;
+
+    /* Dating depekto: tuwing nawawala ang naka-imbak na id, gumagawa ng
+       bagong dokumento ang I-publish. Kaya posibleng maraming kopya —
+       at magkaibang kopya ang binabasa ng adviser at sinusulatan ng
+       secretary. Pagsasamahin natin sila sa isa. */
+    const docs = snap.docs.slice().sort((a, b) =>
+      (b.data().updatedAt || 0) - (a.data().updatedAt || 0));
+    const keep = docs[0];
+
+    if(docs.length > 1){
+      const mergedMarks = {};
+      const mergedLog = [];
+      /* Mula sa pinakaluma papuntang pinakabago, para ang bagong halaga
+         ang mananaig sa tuwing may magkasalungat. */
+      docs.slice().reverse().forEach(d=>{
+        const dd = d.data();
+        Object.keys(dd.marks || {}).forEach(dateKey=>{
+          mergedMarks[dateKey] = Object.assign({}, mergedMarks[dateKey] || {}, dd.marks[dateKey]);
+        });
+        (dd.log || []).forEach(e => mergedLog.push(e));
+      });
+      mergedLog.sort((a, b) => (a.at || 0) - (b.at || 0));
+
+      await keep.ref.update({
+        marks: mergedMarks,
+        log: mergedLog.slice(-30),
+        updatedAt: Date.now(),
+        updatedBy: 'teacher'
+      });
+      for(const d of docs.slice(1)){
+        await d.ref.delete().catch(()=>{});
+      }
+      const days = Object.keys(mergedMarks).length;
+      showToast(`Pinagsama ang ${docs.length} kopya ng klase — ${days} araw ang nailigtas.`);
+      const fresh = await keep.ref.get();
+      setupData.secretaryClassId = keep.id;
+      saveSetup(setupData);
+      return fresh;
+    }
+
+    if(setupData.secretaryClassId !== keep.id){
+      setupData.secretaryClassId = keep.id;
       saveSetup(setupData);
     }
-    return doc;
+    return keep;
   }catch(err){
     console.warn('Hindi mahanap ang class doc', err);
     return null;
