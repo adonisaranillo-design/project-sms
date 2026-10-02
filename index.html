@@ -666,6 +666,8 @@
       <div id="dashSchoolSub" style="font-size:13px; color:var(--ink-soft);">Piliin ang gusto mong buksan</div>
     </div>
 
+    <div id="dashCalendar" style="margin-bottom:34px;"></div>
+
     <div id="dashGroups"></div>
   </div>
 </div>
@@ -1949,6 +1951,202 @@ function updateDashboardHeader(){
   else { markEl.textContent = 'SF'; }
 }
 
+/* =========================================================
+   SCHOOL CALENDAR — DepEd Order No. 009, s. 2026
+   "Guidelines on the Implementation of the Three-Term School
+   Calendar in Basic Education" (inilabas Abril 16, 2026).
+   SY 2026-2027: Hunyo 8, 2026 – Abril 8, 2027, 201 class days.
+   ========================================================= */
+const DEPED_CALENDAR = {
+  order: 'DepEd Order No. 009, s. 2026',
+  sy: '2026-2027',
+  opens: '2026-06-08',
+  closes: '2027-04-08',
+  classDays: 201,
+  terms: [
+    { n:1, label:'Term 1', start:'2026-06-08', end:'2026-09-15', days:69,
+      opening:   { start:'2026-06-08', end:'2026-06-11' },
+      instruction:{ start:'2026-06-15', end:'2026-09-01' },
+      endBlock:  { start:'2026-09-02', end:'2026-09-15' } },
+    { n:2, label:'Term 2', start:'2026-09-16', end:'2026-12-18', days:65,
+      instruction:{ start:'2026-09-16', end:'2026-12-04' },
+      endBlock:  { start:'2026-12-07', end:'2026-12-18' } },
+    { n:3, label:'Term 3', start:'2027-01-04', end:'2027-04-08', days:67,
+      instruction:{ start:'2027-01-04', end:'2027-03-23' },
+      endBlock:  { start:'2027-03-24', end:'2027-04-08' } }
+  ],
+  events: [
+    { d:'2026-05-04', to:'2026-05-29', t:'Oplan Balik Eskwela',            k:'prep' },
+    { d:'2026-06-01', to:'2026-06-05', t:'Brigada Eskwela',                k:'prep' },
+    { d:'2026-06-08',                  t:'Pagbubukas ng SY 2026-2027',     k:'term' },
+    { d:'2026-06-08', to:'2026-06-11', t:'Opening Block (Term 1)',         k:'block' },
+    { d:'2026-06-15',                  t:'Simula ng klase (Term 1)',       k:'term' },
+    { d:'2026-08-28', to:'2026-09-01', t:'Term 1 Examination',             k:'exam' },
+    { d:'2026-09-02', to:'2026-09-15', t:'End-of-Term Block (Term 1)',     k:'block' },
+    { d:'2026-09-15',                  t:'Katapusan ng Term 1',            k:'term' },
+    { d:'2026-09-16',                  t:'Simula ng Term 2',               k:'term' },
+    { d:'2026-10-07',                  t:'Term 2: Unang Summative Test',   k:'test' },
+    { d:'2026-10-29',                  t:'Term 2: Pangalawang Summative',  k:'test' },
+    { d:'2026-11-01',                  t:'Araw ng mga Santo (Walang pasok)', k:'holiday' },
+    { d:'2026-11-02',                  t:'Araw ng mga Kaluluwa (Walang pasok)', k:'holiday' },
+    { d:'2026-11-30',                  t:'Araw ni Bonifacio (Walang pasok)', k:'holiday' },
+    { d:'2026-12-03', to:'2026-12-04', t:'Term 2 Examination',             k:'exam' },
+    { d:'2026-12-07', to:'2026-12-18', t:'End-of-Term Block (Term 2)',     k:'block' },
+    { d:'2026-12-08',                  t:'Immaculate Conception (Walang pasok)', k:'holiday' },
+    { d:'2026-12-18',                  t:'Katapusan ng Term 2',            k:'term' },
+    { d:'2026-12-19', to:'2026-12-31', t:'Year-End Break',                 k:'break' },
+    { d:'2027-01-04',                  t:'Simula ng Term 3',               k:'term' },
+    { d:'2027-01-25',                  t:'Term 3: Unang Summative Test',   k:'test' },
+    { d:'2027-01-30',                  t:'Simula ng Early Registration',   k:'prep' },
+    { d:'2027-02-06',                  t:'Chinese New Year (Walang pasok)', k:'holiday' },
+    { d:'2027-02-16',                  t:'Term 3: Pangalawang Summative',  k:'test' },
+    { d:'2027-03-15', to:'2027-03-16', t:'Term 3 Exam (Graduating/Moving Up)', k:'exam' },
+    { d:'2027-03-22', to:'2027-03-23', t:'Term 3 Examination',             k:'exam' },
+    { d:'2027-03-24', to:'2027-04-08', t:'End-of-Term Block (Term 3)',     k:'block' },
+    { d:'2027-03-25',                  t:'Huwebes Santo (Walang pasok)',   k:'holiday' },
+    { d:'2027-04-06', to:'2027-04-07', t:'EOSY Rites',                     k:'term' },
+    { d:'2027-04-08',                  t:'Katapusan ng SY 2026-2027',      k:'term' }
+  ]
+};
+
+const CAL_KIND = {
+  term:    { c:'#16324f', bg:'#e8eef5', n:'Term' },
+  block:   { c:'#7a5c12', bg:'#f6efdc', n:'Block' },
+  exam:    { c:'#b8433a', bg:'#fbeeed', n:'Exam' },
+  test:    { c:'#a8517a', bg:'#f9eef4', n:'Test' },
+  holiday: { c:'#3a7d54', bg:'#eaf5ee', n:'Walang pasok' },
+  break:   { c:'#2f6690', bg:'#e9f1f7', n:'Break' },
+  prep:    { c:'#5c6570', bg:'#f0eee8', n:'Paghahanda' }
+};
+
+function calDate(s){ return new Date(s + 'T00:00:00'); }
+function calToday(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
+function calFmt(s, withYear){
+  const d = calDate(s);
+  return d.toLocaleDateString('en-US',
+    { month:'short', day:'numeric', ...(withYear ? { year:'numeric' } : {}) });
+}
+function calRange(e){
+  if(!e.to) return calFmt(e.d);
+  const a = calDate(e.d), b = calDate(e.to);
+  return a.getMonth() === b.getMonth()
+    ? `${calFmt(e.d)}–${b.getDate()}`
+    : `${calFmt(e.d)} – ${calFmt(e.to)}`;
+}
+
+/* Aling term tayo ngayon? Null kapag nasa break o labas ng SY. */
+function calCurrentTerm(today){
+  const t = today || calToday();
+  return DEPED_CALENDAR.terms.find(x => t >= calDate(x.start) && t <= calDate(x.end)) || null;
+}
+
+/* Ilang porsyento na ng term ang nakalipas. */
+function calTermProgress(term, today){
+  const t = today || calToday();
+  const a = calDate(term.start), b = calDate(term.end);
+  const span = (b - a) / 86400000;
+  const gone = Math.max(0, Math.min(span, (t - a) / 86400000));
+  return { pct: span > 0 ? Math.round((gone / span) * 100) : 0,
+           left: Math.max(0, Math.ceil((b - t) / 86400000)) };
+}
+
+/* Mga susunod na petsa, pasimula sa pinakamalapit. */
+function calUpcoming(limit, today){
+  const t = today || calToday();
+  return DEPED_CALENDAR.events
+    .filter(e => calDate(e.to || e.d) >= t)
+    .sort((a, b) => calDate(a.d) - calDate(b.d))
+    .slice(0, limit || 6);
+}
+
+function renderDashCalendar(){
+  const host = document.getElementById('dashCalendar');
+  if(!host) return;
+  const today = calToday();
+  const cur = calCurrentTerm(today);
+  const cal = DEPED_CALENDAR;
+
+  /* Pangunahing banner: nasaan tayo ngayon */
+  let headline, detail, bar = '';
+  if(cur){
+    const p = calTermProgress(cur, today);
+    headline = `${cur.label} — ${calFmt(cur.start)} hanggang ${calFmt(cur.end, true)}`;
+    detail = `${p.pct}% tapos &middot; ${p.left} araw na lang bago matapos ang term &middot; ${cur.days} class days`;
+    bar = `<div style="height:6px; background:rgba(255,255,255,.22); border-radius:3px; overflow:hidden; margin-top:12px;">
+             <div style="height:100%; width:${p.pct}%; background:var(--gold); border-radius:3px;"></div>
+           </div>`;
+  } else if(today < calDate(cal.opens)){
+    headline = 'Hindi pa nagsisimula ang pasukan';
+    detail = `Magbubukas ang SY ${cal.sy} sa ${calFmt(cal.opens, true)}`;
+  } else if(today > calDate(cal.closes)){
+    headline = `Tapos na ang SY ${cal.sy}`;
+    detail = `Nagtapos noong ${calFmt(cal.closes, true)}`;
+  } else {
+    headline = 'Wala sa term — nasa break';
+    const next = cal.terms.find(x => calDate(x.start) > today);
+    detail = next ? `Magbabalik sa ${next.label} sa ${calFmt(next.start, true)}` : '';
+  }
+
+  /* Tatlong term na maliliit na kard */
+  const termCards = cal.terms.map(t=>{
+    const active = cur && cur.n === t.n;
+    const done = today > calDate(t.end);
+    const state = active ? 'Kasalukuyan' : (done ? 'Tapos na' : 'Paparating');
+    const colour = active ? 'var(--gold)' : (done ? 'var(--ok)' : 'var(--line-strong)');
+    return `<div style="flex:1; min-width:150px; background:var(--paper-card); border:1px solid ${active ? 'var(--gold)' : 'var(--line)'};
+              border-radius:var(--radius); padding:11px 13px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <b style="font-family:'Lora',serif; font-size:14px; color:var(--navy-deep);">${t.label}</b>
+        <span style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:${colour};">${state}</span>
+      </div>
+      <div style="font-size:11.5px; color:var(--ink-soft); margin-top:3px;">
+        ${calFmt(t.start)} – ${calFmt(t.end)} &middot; ${t.days} araw
+      </div>
+    </div>`;
+  }).join('');
+
+  /* Mga paparating na petsa */
+  const rows = calUpcoming(6, today).map(e=>{
+    const k = CAL_KIND[e.k] || CAL_KIND.prep;
+    const start = calDate(e.d);
+    const days = Math.ceil((start - today) / 86400000);
+    const when = days <= 0 ? 'Ngayon' : (days === 1 ? 'Bukas' : `${days} araw`);
+    return `<div style="display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--line);">
+      <span style="flex:0 0 96px; font-size:11.5px; color:var(--ink-soft);">${calRange(e)}</span>
+      <span style="flex:1; font-size:12.5px;">${e.t}</span>
+      <span style="flex:0 0 auto; font-size:9.5px; font-weight:700; padding:2px 7px; border-radius:20px;
+            background:${k.bg}; color:${k.c};">${k.n}</span>
+      <span style="flex:0 0 58px; text-align:right; font-size:11px; color:var(--ink-soft);">${when}</span>
+    </div>`;
+  }).join('') || '<div style="font-size:12.5px; color:var(--ink-soft); padding:8px 0;">Wala nang natitirang petsa sa kalendaryong ito.</div>';
+
+  host.innerHTML = `
+    <div style="background:linear-gradient(160deg,var(--navy-deep),var(--navy)); color:#fff;
+         border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow);">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; opacity:.68;">
+        School Calendar &middot; SY ${cal.sy}
+      </div>
+      <div style="font-family:'Lora',serif; font-size:18px; font-weight:600; margin-top:3px;">${headline}</div>
+      <div style="font-size:12px; opacity:.85; margin-top:3px;">${detail}</div>
+      ${bar}
+    </div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">${termCards}</div>
+
+    <div style="background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius);
+         padding:14px 16px; margin-top:12px;">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--navy);
+           font-weight:700; margin-bottom:6px;">Mga paparating na petsa</div>
+      ${rows}
+      <div style="font-size:10.5px; color:var(--ink-soft); margin-top:10px; line-height:1.6;">
+        Batay sa <strong>${cal.order}</strong> — Guidelines on the Implementation of the Three-Term
+        School Calendar in Basic Education. ${cal.classDays} class days, ${calFmt(cal.opens, true)}
+        hanggang ${calFmt(cal.closes, true)}. Maaaring magbago ang mga petsa sa pamamagitan ng
+        susunod na kautusan ng DepEd.
+      </div>
+    </div>`;
+}
+
 function renderDashboard(){
   const container = document.getElementById('dashGroups');
   container.innerHTML = DASH_GROUPS.map(group=>`
@@ -1973,6 +2171,7 @@ function renderDashboard(){
 
 function showDashboard(){
   updateDashboardHeader();
+  renderDashCalendar();
   renderDashboard();
   document.getElementById('dashboardView').style.display = 'block';
 }
