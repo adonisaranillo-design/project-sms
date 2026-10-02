@@ -8161,12 +8161,13 @@ function secSchedulePush(){
 }
 
 /* Makinig sa dokumento. Kapag ang secretary ang nagsulat, isama agad. */
-function secStartListening(){
+async function secStartListening(){
   secStopListening();
   if(!fbAvailable || !currentUser || !secEmail()) return;
-  if(!setupData.secretaryClassId) return;
+  const found = await secFindDoc();
+  if(!found && !setupData.secretaryClassId) return;
   try{
-    secUnsubscribe = fbDb.collection('class_attendance').doc(secClassId())
+    secUnsubscribe = fbDb.collection('class_attendance').doc(found ? found.id : secClassId())
       .onSnapshot(snap=>{
         if(!snap.exists) return;
         const data = snap.data();
@@ -8212,6 +8213,29 @@ function secErrorMessage(err, action){
   return 'May error: ' + (err && err.message ? err.message : 'hindi matukoy') + '.';
 }
 
+/* Hanapin ang dokumento ng klase sa pamamagitan ng ownerUid, hindi sa
+   naka-imbak na id. Ang setup ay napapalitan tuwing nagsa-sign in mula
+   sa cloud — kapag nawala roon ang id, iba nang dokumento ang hahanapin
+   at parang walang laman kahit meron naman. */
+async function secFindDoc(){
+  if(!fbAvailable || !currentUser) return null;
+  try{
+    const snap = await fbDb.collection('class_attendance')
+      .where('ownerUid', '==', currentUser.uid).limit(1).get();
+    if(snap.empty) return null;
+    const doc = snap.docs[0];
+    // Ibalik sa setup ang tunay na id para tugma ang susunod na pagsulat.
+    if(setupData.secretaryClassId !== doc.id){
+      setupData.secretaryClassId = doc.id;
+      saveSetup(setupData);
+    }
+    return doc;
+  }catch(err){
+    console.warn('Hindi mahanap ang class doc', err);
+    return null;
+  }
+}
+
 async function secPublish(){
   if(!fbAvailable || !currentUser){
     showToast('Kailangan munang naka-sign in sa cloud.', true); return;
@@ -8224,7 +8248,8 @@ async function secPublish(){
   setupData.secretaryBackdays = backdays;
   saveSetup(setupData);
 
-  const id = secClassId();
+  const existing = await secFindDoc();
+  const id = existing ? existing.id : secClassId();
 
   /* Kunin muna ang nasa cloud. Kung may naipasok na ang secretary na hindi
      pa nakukuha, isama muna sa lokal bago magsulat — kung hindi, mabubura. */
@@ -8263,7 +8288,7 @@ async function secPublish(){
     updatedAt: Date.now(),
     updatedBy: 'teacher'
   });
-  secRenderInfo(`Na-publish — ${secRoster().length} learner, hanggang ${backdays} araw pabalik.`);
+  secRenderInfo(`Na-publish — ${secRoster().length} learner, hanggang ${backdays} araw pabalik. (ID: ${id})`);
   showToast('Na-publish na. Puwede nang mag-sign up ang secretary.');
   localStorage.setItem(SEC_SEEN_KEY, String(Date.now()));
   secStartListening();
@@ -8277,7 +8302,8 @@ async function secPull(options){
   }
   let snap;
   try{
-    snap = await fbDb.collection('class_attendance').doc(secClassId()).get();
+    snap = await secFindDoc();
+    if(!snap) snap = await fbDb.collection('class_attendance').doc(secClassId()).get();
   }catch(err){
     console.error(err);
     /* Kapag wala pang dokumento, ang rules ay walang masusuri kaya
@@ -8348,8 +8374,8 @@ function secRenderLog(data){
 async function secCheckForUpdates(){
   if(!fbAvailable || !currentUser || !secEmail()) return;
   try{
-    const snap = await fbDb.collection('class_attendance').doc(secClassId()).get();
-    if(!snap.exists) return;
+    const snap = await secFindDoc();
+    if(!snap) return;
     const data = snap.data();
     secRenderLog(data);
     const seen = parseInt(localStorage.getItem(SEC_SEEN_KEY) || '0');
