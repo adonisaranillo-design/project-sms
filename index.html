@@ -8114,17 +8114,34 @@ function secApplyMarks(marks){
     const month = MONTHS_ORDER.find(m => MONTH_JS_INDEX[m] === d.getMonth() && yearForMonth(m) === d.getFullYear());
     if(!month) return;
     const data = getMonthData(month);
-    Object.keys(marks[dateKey]).forEach(sid=>{
-      const val = marks[dateKey][sid];
+    const day = d.getDate();
+    const cloudDay = marks[dateKey] || {};
+
+    /* Idagdag o palitan ang mga nasa cloud. */
+    Object.keys(cloudDay).forEach(sid=>{
+      const val = cloudDay[sid];
       if(!students.some(s => s.id === sid)) return;       // tinanggal na sa masterlist
       if(!data.marks[sid]) data.marks[sid] = {};
-      const day = d.getDate();
       if(data.marks[sid][day] !== val){
         if(val === '' || val === null || val === undefined) delete data.marks[sid][day];
         else data.marks[sid][day] = val;
         applied++;
         byMonth[month] = (byMonth[month] || 0) + 1;
       }
+    });
+
+    /* Burahin ang mga nawala. Kapag ibinalik ng secretary sa Present,
+       inaalis niya ang susi — kaya kulang lang itong hanapin ang mga
+       nasa cloud; kailangang tingnan din kung ano ang nawala. Ang petsang
+       nasa cloud ang masusunod; hindi ginagalaw ang mga petsang wala
+       roon, para hindi mabura ang sarili mong naunang encode. */
+    Object.keys(data.marks).forEach(sid=>{
+      if(cloudDay[sid] !== undefined) return;
+      if(data.marks[sid][day] === undefined) return;
+      if(!students.some(s => s.id === sid)) return;
+      delete data.marks[sid][day];
+      applied++;
+      byMonth[month] = (byMonth[month] || 0) + 1;
     });
   });
   if(applied){
