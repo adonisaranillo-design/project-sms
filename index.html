@@ -599,6 +599,55 @@
   </div>
 </div>
 
+
+<!-- ================= GC MESSAGE ================= -->
+<div id="gcOverlay" hidden style="position:fixed; inset:0; z-index:120; background:rgba(20,41,63,.55); display:none; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:600px; max-height:90vh; overflow-y:auto; padding:24px;">
+    <div style="font-family:'Lora',serif; font-weight:600; font-size:16px; color:var(--navy-deep);">Mensahe para sa GC ng mga Magulang</div>
+    <div id="gcSubtitle" style="font-size:12.5px; color:var(--ink-soft); margin-bottom:14px;"></div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div class="field">
+        <label>Paano ipapakita ang pangalan</label>
+        <select id="gcNameStyle">
+          <option value="surname">Apelyido lang</option>
+          <option value="initials">Apelyido + inisyal</option>
+          <option value="full">Buong pangalan</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Isama lamang ang may</label>
+        <select id="gcThreshold">
+          <option value="1">1 pataas na absent o late</option>
+          <option value="2">2 pataas</option>
+          <option value="3">3 pataas</option>
+          <option value="5">5 pataas</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:4px;">
+      <label><input type="checkbox" id="gcIncludeLate" checked style="width:auto; margin-right:6px;"> Isama ang bilang ng late</label>
+    </div>
+
+    <div class="field">
+      <label>Mensahe</label>
+      <textarea id="gcText" rows="14" style="width:100%; font-family:inherit; font-size:12.5px; line-height:1.6; resize:vertical;"></textarea>
+    </div>
+
+    <p style="font-size:11px; color:var(--ink-soft); line-height:1.6; margin:4px 0 0;">
+      Puwede mong i-edit ang teksto bago kopyahin. Tandaan: ang talaan ng pagpasok ay
+      personal na impormasyon ng bata &mdash; kaya apelyido lang ang default. Para sa mga
+      bagay na seryoso, mas mainam ang sariling mensahe sa magulang kaysa sa GC.
+    </p>
+
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn" id="gcClose">Isara</button>
+      <button class="btn btn-primary" id="gcCopy">&#128203; Kopyahin</button>
+    </div>
+  </div>
+</div>
+
 <!-- ================= STATUS DIALOG ================= -->
 <div id="statusOverlay" hidden style="position:fixed; inset:0; z-index:120; background:rgba(20,41,63,.55); display:none; align-items:center; justify-content:center; padding:20px;">
   <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:420px; padding:24px 24px 20px;">
@@ -1332,6 +1381,41 @@
         </div>
       </div>
 
+
+      <div class="card">
+        <h2><span class="num">3</span> Attendance ng Class Secretary</h2>
+        <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
+          Bibigyan mo ng sariling portal ang class secretary para siya ang mag-encode ng
+          araw-araw na attendance. <strong>Attendance lang ang maaabot niya</strong> — walang grades,
+          walang LRN, walang impormasyon ng magulang. Bawat marka ay may tala kung sino ang
+          naglagay at kailan.
+        </p>
+
+        <div class="grid g2" style="margin-top:12px;">
+          <div class="field">
+            <label>Email ng secretary</label>
+            <input type="email" id="secEmail" placeholder="email@example.com">
+          </div>
+          <div class="field">
+            <label>Hanggang ilang araw pabalik</label>
+            <select id="secBackdays">
+              <option value="0">Ngayong araw lang</option>
+              <option value="3" selected>Hanggang 3 araw pabalik</option>
+              <option value="7">Hanggang 7 araw pabalik</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="toolbar" style="margin-top:12px;">
+          <button class="btn btn-gold" id="btnSecPublish">&#128228; I-publish ang klase sa secretary</button>
+          <button class="btn" id="btnSecPull">&#128229; Kunin ang mga naipasok</button>
+          <button class="btn" id="btnSecRevoke">&#128683; Bawiin ang access</button>
+          <div class="spacer"></div>
+          <span id="secInfo" style="font-size:11.5px; color:var(--ink-soft);"></span>
+        </div>
+
+        <div id="secLog" style="margin-top:12px;"></div>
+      </div>
       <div class="card" style="padding:0; overflow-x:auto;">
         <table id="portalTable">
           <thead>
@@ -1363,6 +1447,7 @@
           <label>Month</label>
           <select id="att_month"></select>
         </div>
+        <button class="btn btn-sm" id="btnGcMessage">&#128172; Bumuo ng mensahe sa GC</button>
         <div class="spacer"></div>
         <span style="font-size:11.5px; color:var(--ink-soft);">Click a date sa column header para markahan bilang <strong>No Class</strong>. Click ang cell ng estudyante para i-cycle: <strong style="color:var(--ok);">Present</strong> → <strong style="color:var(--danger);">Absent</strong> → <strong style="color:#a3690a;">Late</strong> → <strong style="color:var(--male);">Modular/Distance</strong>. 3 Late = 1 Absent (auto-compute) &mdash; ang ikatlong late ay may <strong>*</strong> at pulang border, at 'yun ang lalagyan ng <strong>x</strong> sa SF2.</span>
       </div>
@@ -1884,7 +1969,14 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(v === 'summary'){ renderSummaryView(); }
     if(v === 'report'){ renderReportView(); }
     if(v === 'eclass'){ renderEclassList(); }
-    if(v === 'portal'){ renderPortalView(); }
+    if(v === 'portal'){
+      renderPortalView();
+      document.getElementById('secEmail').value = setupData.secretaryEmail || '';
+      if(setupData.secretaryBackdays !== undefined){
+        document.getElementById('secBackdays').value = String(setupData.secretaryBackdays);
+      }
+      secCheckForUpdates();
+    }
     if(v === 'attendance'){ renderAttendanceView(); }
     if(v === 'awards'){ renderAwardsView(); }
     if(v === 'archives'){ renderArchivesList(); }
@@ -7945,6 +8037,318 @@ function closeMobileDetail(fromHistory){
   });
 })();
 
+
+
+/* =========================================================
+   CLASS SECRETARY — ATTENDANCE PORTAL
+   Hiwalay na dokumento sa Firestore na attendance lang ang laman.
+   Hindi kailanman nito hinahawakan ang grades o ang personal na
+   impormasyon ng mga bata.
+   ========================================================= */
+const SEC_SEEN_KEY = 'sms_secretary_seen_v1';
+
+function secClassId(){
+  if(!setupData.secretaryClassId){
+    setupData.secretaryClassId = 'cls_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    saveSetup(setupData);
+  }
+  return setupData.secretaryClassId;
+}
+function secEmail(){ return (setupData.secretaryEmail || '').trim().toLowerCase(); }
+
+/* Ang ipinapadala ay pangalan lamang at kasarian — wala nang iba. */
+function secRoster(){
+  return students
+    .filter(s => isActiveStatus(s) || !s.statusDate)
+    .map(s => ({
+      id: s.id,
+      name: `${s.lastName || ''}, ${s.firstName || ''}`.replace(/^,\s*|,\s*$/g,'').trim().toUpperCase(),
+      sex: s.sex || 'MALE',
+      statusDate: s.statusDate || '',
+      status: s.status || 'ACTIVE'
+    }));
+}
+
+/* Petsa bilang YYYY-MM-DD para sa mga susi ng marka. */
+function secDateKey(d){
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+
+/* Isinasalin ang lokal na attendance (buwan + araw) tungo sa petsa. */
+function secLocalMarks(){
+  const out = {};
+  Object.keys(attendance || {}).forEach(month=>{
+    const md = attendance[month];
+    if(!md || !md.marks) return;
+    const year = yearForMonth(month), mi = MONTH_JS_INDEX[month];
+    if(mi === undefined) return;
+    Object.keys(md.marks).forEach(sid=>{
+      Object.keys(md.marks[sid]).forEach(day=>{
+        const key = secDateKey(new Date(year, mi, parseInt(day)));
+        if(!out[key]) out[key] = {};
+        out[key][sid] = md.marks[sid][day];
+      });
+    });
+  });
+  return out;
+}
+
+/* Ibinabalik ang mga marka mula sa petsa papuntang buwan + araw. */
+function secApplyMarks(marks){
+  let applied = 0;
+  const byMonth = {};
+  Object.keys(marks || {}).forEach(dateKey=>{
+    const d = new Date(dateKey + 'T00:00:00');
+    if(isNaN(d)) return;
+    const month = MONTHS_ORDER.find(m => MONTH_JS_INDEX[m] === d.getMonth() && yearForMonth(m) === d.getFullYear());
+    if(!month) return;
+    const data = getMonthData(month);
+    Object.keys(marks[dateKey]).forEach(sid=>{
+      const val = marks[dateKey][sid];
+      if(!students.some(s => s.id === sid)) return;       // tinanggal na sa masterlist
+      if(!data.marks[sid]) data.marks[sid] = {};
+      const day = d.getDate();
+      if(data.marks[sid][day] !== val){
+        if(val === '' || val === null || val === undefined) delete data.marks[sid][day];
+        else data.marks[sid][day] = val;
+        applied++;
+        byMonth[month] = (byMonth[month] || 0) + 1;
+      }
+    });
+  });
+  if(applied) saveAttendance();
+  return { applied, byMonth };
+}
+
+async function secPublish(){
+  if(!fbAvailable || !currentUser){
+    showToast('Kailangan munang naka-sign in sa cloud.', true); return;
+  }
+  const email = (document.getElementById('secEmail').value || '').trim().toLowerCase();
+  if(!email){ showToast('Maglagay ng email ng secretary.', true); return; }
+  const backdays = parseInt(document.getElementById('secBackdays').value);
+
+  setupData.secretaryEmail = email;
+  setupData.secretaryBackdays = backdays;
+  saveSetup(setupData);
+
+  const id = secClassId();
+  await fbDb.collection('class_attendance').doc(id).set({
+    ownerUid: currentUser.uid,
+    secretaryEmail: email,
+    backdays: backdays,
+    schoolName: setupData.schoolName || '',
+    gradeLevel: setupData.gradeLevel || gctx.gradeLevel || '',
+    section: setupData.section || '',
+    schoolYear: setupData.schoolYear || '',
+    adviser: setupData.adviser || '',
+    roster: secRoster(),
+    holidays: Object.keys(attendance || {}).reduce((acc, m)=>{
+      (attendance[m].holidays || []).forEach(day=>{
+        const mi = MONTH_JS_INDEX[m];
+        if(mi !== undefined) acc.push(secDateKey(new Date(yearForMonth(m), mi, day)));
+      });
+      return acc;
+    }, []),
+    marks: secLocalMarks(),
+    updatedAt: Date.now(),
+    updatedBy: 'teacher'
+  });
+  secRenderInfo(`Na-publish — ${secRoster().length} learner, hanggang ${backdays} araw pabalik.`);
+  showToast('Na-publish na. Puwede nang mag-sign up ang secretary.');
+}
+
+async function secPull(options){
+  const quiet = options && options.quiet;
+  if(!fbAvailable || !currentUser){
+    if(!quiet) showToast('Kailangan munang naka-sign in sa cloud.', true);
+    return null;
+  }
+  const snap = await fbDb.collection('class_attendance').doc(secClassId()).get();
+  if(!snap.exists){
+    if(!quiet) showToast('Wala pang na-publish na klase.', true);
+    return null;
+  }
+  const data = snap.data();
+  if(data.updatedBy !== 'secretary'){
+    if(!quiet) showToast('Wala pang bagong ipinasok ang secretary.');
+    secRenderLog(data);
+    return data;
+  }
+  const res = secApplyMarks(data.marks);
+  secRenderLog(data);
+  if(res.applied){
+    renderAttendanceView();
+    const months = Object.keys(res.byMonth).map(m => `${m} (${res.byMonth[m]})`).join(', ');
+    showToast(`Naisama ang ${res.applied} markang galing sa secretary — ${months}.`);
+  } else if(!quiet){
+    showToast('Wala nang bagong marka — tugma na ang lahat.');
+  }
+  localStorage.setItem(SEC_SEEN_KEY, String(data.updatedAt || 0));
+  return data;
+}
+
+async function secRevoke(){
+  if(!fbAvailable || !currentUser){ showToast('Kailangan munang naka-sign in sa cloud.', true); return; }
+  if(!confirm('Babawiin ang access ng secretary. Mananatili ang lahat ng naitalang attendance. Ituloy?')) return;
+  await fbDb.collection('class_attendance').doc(secClassId()).delete().catch(()=>{});
+  setupData.secretaryEmail = '';
+  saveSetup(setupData);
+  document.getElementById('secEmail').value = '';
+  secRenderInfo('Nabawi na ang access.');
+  showToast('Nabawi na ang access ng secretary.');
+}
+
+function secRenderInfo(text){
+  const el = document.getElementById('secInfo');
+  if(el) el.textContent = text;
+}
+
+function secRenderLog(data){
+  const host = document.getElementById('secLog');
+  if(!host) return;
+  const log = (data && data.log) || [];
+  if(log.length === 0){ host.innerHTML = ''; return; }
+  const rows = log.slice(-8).reverse().map(e=>{
+    const when = e.at ? new Date(e.at).toLocaleString('en-PH') : '';
+    return `<div style="display:flex; gap:10px; padding:5px 0; border-bottom:1px solid var(--line); font-size:11.5px;">
+      <span style="flex:0 0 96px; color:var(--ink-soft);">${escapeHtml(e.date || '')}</span>
+      <span style="flex:1;">${escapeHtml(e.by || '')} — ${e.count || 0} marka</span>
+      <span style="flex:0 0 auto; color:var(--ink-soft);">${escapeHtml(when)}</span>
+    </div>`;
+  }).join('');
+  host.innerHTML = `<div style="font-size:10px; text-transform:uppercase; letter-spacing:.07em;
+      color:var(--navy); font-weight:700; margin-bottom:5px;">Talaan ng pagpasok ng marka</div>${rows}`;
+}
+
+/* Tahimik na pagtingin kung may bago — tumatakbo tuwing bubuksan ang Portal. */
+async function secCheckForUpdates(){
+  if(!fbAvailable || !currentUser || !secEmail()) return;
+  try{
+    const snap = await fbDb.collection('class_attendance').doc(secClassId()).get();
+    if(!snap.exists) return;
+    const data = snap.data();
+    secRenderLog(data);
+    const seen = parseInt(localStorage.getItem(SEC_SEEN_KEY) || '0');
+    if(data.updatedBy === 'secretary' && (data.updatedAt || 0) > seen){
+      const when = new Date(data.updatedAt).toLocaleString('en-PH');
+      secRenderInfo(`May bagong ipinasok ang secretary — ${when}`);
+      showToast('May bagong attendance mula sa secretary. Pindutin ang "Kunin ang mga naipasok".');
+    }
+  }catch(err){ /* walang access o offline — hayaan */ }
+}
+
+/* =========================================================
+   MENSAHE PARA SA GC NG MGA MAGULANG
+   Listahan ng may absent at late sa napiling buwan. Apelyido
+   lang ang default dahil personal na impormasyon ng bata ang
+   talaan ng pagpasok.
+   ========================================================= */
+function gcLearnerLabel(s, style){
+  const last = (s.lastName || '').trim();
+  const first = (s.firstName || '').trim();
+  if(style === 'full')     return `${last}, ${first}`.replace(/^,\s*|,\s*$/g,'');
+  if(style === 'initials') return `${last}${first ? ', ' + first.charAt(0) + '.' : ''}`;
+  return last || first || '(walang pangalan)';
+}
+
+function gcBuildMessage(){
+  const style = document.getElementById('gcNameStyle').value;
+  const min   = parseInt(document.getElementById('gcThreshold').value) || 1;
+  const withLate = document.getElementById('gcIncludeLate').checked;
+  const d = setupData;
+  const monthLabel = attMonth.charAt(0) + attMonth.slice(1).toLowerCase();
+  const year = yearForMonth(attMonth);
+
+  const listed = students.filter(s => sf2AppearsInMonth(s, attMonth));
+  const rows = listed.map(s=>{
+    const t = sf2EnrolledTotals(s, attMonth);
+    return { s, absent: t.absent, late: t.late };
+  }).filter(r => r.absent >= min || (withLate && r.late >= min));
+
+  rows.sort((a,b) => (b.absent - a.absent) || (b.late - a.late)
+    || gcLearnerLabel(a.s,'surname').localeCompare(gcLearnerLabel(b.s,'surname')));
+
+  const head = [
+    `Magandang araw po sa lahat ng magulang at tagapag-alaga.`,
+    ``,
+    `Narito po ang talaan ng pagpasok para sa buwan ng ${monthLabel} ${year}`
+      + ` — ${d.gradeLevel ? 'Grade ' + d.gradeLevel : ''}${d.section ? ' ' + d.section : ''}.`.replace(/\s+/g,' '),
+    ``
+  ];
+
+  let body;
+  if(rows.length === 0){
+    body = [`Wala pong learner na umabot sa ${min} absent o late ngayong buwan.`,
+            `Maraming salamat po sa inyong suporta.`];
+  } else {
+    body = rows.map(r=>{
+      const bits = [];
+      if(r.absent) bits.push(`${r.absent} absent`);
+      if(withLate && r.late) bits.push(`${r.late} late`);
+      return `• ${gcLearnerLabel(r.s, style)} — ${bits.join(', ')}`;
+    });
+    body.push('');
+    body.push(`Hinihiling po namin ang inyong tulong upang matiyak ang regular na pagpasok`
+      + ` ng inyong anak. Kung may kalagayan pong nakakaapekto sa kanilang pag-aaral,`
+      + ` maaari po kayong makipag-ugnayan sa akin nang sarilinan.`);
+    body.push('');
+    body.push(`Maraming salamat po.`);
+  }
+
+  const foot = ['', d.adviser ? `${d.adviser}` : '', d.adviser ? 'Class Adviser' : '']
+    .filter((x,i)=> i === 0 || x);
+
+  return head.concat(body).concat(foot).join('\n');
+}
+
+function gcRefresh(){
+  document.getElementById('gcText').value = gcBuildMessage();
+}
+
+function openGcDialog(){
+  if(students.length === 0){ showToast('Walang laman ang Masterlist.', true); return; }
+  const monthLabel = attMonth.charAt(0) + attMonth.slice(1).toLowerCase();
+  document.getElementById('gcSubtitle').textContent =
+    `Batay sa talaan ng ${monthLabel} ${yearForMonth(attMonth)}`;
+  gcRefresh();
+  const ov = document.getElementById('gcOverlay');
+  ov.hidden = false; ov.style.display = 'flex';
+}
+function closeGcDialog(){
+  const ov = document.getElementById('gcOverlay');
+  ov.hidden = true; ov.style.display = 'none';
+}
+
+(function(){
+  const btn = document.getElementById('btnGcMessage');
+  if(!btn) return;
+  btn.addEventListener('click', openGcDialog);
+  ['gcNameStyle','gcThreshold','gcIncludeLate'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', gcRefresh);
+  });
+  document.getElementById('gcClose').addEventListener('click', closeGcDialog);
+  document.getElementById('gcOverlay').addEventListener('click', (e)=>{
+    if(e.target.id === 'gcOverlay') closeGcDialog();
+  });
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && document.getElementById('gcOverlay').style.display === 'flex') closeGcDialog();
+  });
+  document.getElementById('gcCopy').addEventListener('click', async ()=>{
+    const text = document.getElementById('gcText').value;
+    try{
+      await navigator.clipboard.writeText(text);
+      showToast('Nakopya na — puwede nang i-paste sa GC.');
+    }catch(err){
+      // Walang clipboard permission — piliin na lang ang teksto.
+      const ta = document.getElementById('gcText');
+      ta.select(); ta.setSelectionRange(0, ta.value.length);
+      showToast('Pindutin ang Ctrl+C (o Cmd+C) para kopyahin.', true);
+    }
+  });
+})();
+
 /* =========================================================
    STATUS DIALOG — isang button kada hilera sa Masterlist,
    para hindi masikip ang talahanayan.
@@ -8401,6 +8805,23 @@ document.getElementById('btnToMobile').addEventListener('click', ()=>{
       ? 'Maikling anyo na — pangalan ng paaralan o code lang, gaya ng hinihingi ng form.'
       : 'Detalyadong anyo na — kasama ang katayuan, petsa, at dahilan.');
   });
+})();
+
+(function(){
+  const wrap = (id, fn) => {
+    const b = document.getElementById(id);
+    if(!b) return;
+    b.addEventListener('click', async ()=>{
+      const t = b.textContent;
+      b.disabled = true; b.textContent = 'Sandali...';
+      try{ await fn(); }
+      catch(err){ console.error(err); showToast('May error. Suriin ang security rules sa Firebase.', true); }
+      finally{ b.disabled = false; b.textContent = t; }
+    });
+  };
+  wrap('btnSecPublish', secPublish);
+  wrap('btnSecPull', secPull);
+  wrap('btnSecRevoke', secRevoke);
 })();
 
 document.getElementById('btnPortalOpenAll').addEventListener('click', ()=>{
