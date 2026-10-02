@@ -606,7 +606,7 @@
     <div style="font-family:'Lora',serif; font-weight:600; font-size:16px; color:var(--navy-deep);">Mensahe para sa GC ng mga Magulang</div>
     <div id="gcSubtitle" style="font-size:12.5px; color:var(--ink-soft); margin-bottom:14px;"></div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
       <div class="field">
         <label>Paano ipapakita ang pangalan</label>
         <select id="gcNameStyle">
@@ -616,6 +616,13 @@
         </select>
       </div>
       <div class="field">
+        <label>Saklaw</label>
+        <select id="gcScope">
+          <option value="today">Ngayong araw</option>
+          <option value="month">Buong buwan</option>
+        </select>
+      </div>
+      <div class="field" id="gcThresholdWrap">
         <label>Isama lamang ang may</label>
         <select id="gcThreshold">
           <option value="1">1 pataas na absent o late</option>
@@ -8523,14 +8530,94 @@ function gcLearnerLabel(s, style){
   return last || first || '(walang pangalan)';
 }
 
+/* Aling buwan sa listahan ang kinabibilangan ng petsang ito? */
+function gcMonthOf(dateObj){
+  return MONTHS_ORDER.find(m => MONTH_JS_INDEX[m] === dateObj.getMonth()
+    && yearForMonth(m) === dateObj.getFullYear()) || null;
+}
+
 function gcBuildMessage(){
   const style = document.getElementById('gcNameStyle').value;
+  const scope = document.getElementById('gcScope').value;
   const min   = parseInt(document.getElementById('gcThreshold').value) || 1;
   const withLate = document.getElementById('gcIncludeLate').checked;
   const d = setupData;
+  const cls = `${d.gradeLevel ? 'Grade ' + d.gradeLevel : ''}${d.section ? ' ' + d.section : ''}`.trim();
+
+  const closing = [
+    '',
+    'Hinihiling po namin ang inyong tulong upang matiyak ang regular na pagpasok'
+      + ' ng inyong anak. Kung may kalagayan pong nakakaapekto sa kanilang pag-aaral,'
+      + ' maaari po kayong makipag-ugnayan sa akin nang sarilinan.',
+    '',
+    'Maraming salamat po.'
+  ];
+  const foot = ['', d.adviser || '', d.adviser ? 'Class Adviser' : ''].filter((x,i)=> i === 0 || x);
+
+  /* ---------- NGAYONG ARAW ---------- */
+  if(scope === 'today'){
+    const now = new Date(); now.setHours(0,0,0,0);
+    const month = gcMonthOf(now);
+    const dayNum = now.getDate();
+    const dateLabel = now.toLocaleDateString('en-US',
+      { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+
+    const head = ['Magandang araw po sa lahat ng magulang at tagapag-alaga.', '',
+      `Narito po ang talaan ng pagpasok ngayong ${dateLabel}${cls ? ' — ' + cls : ''}.`, ''];
+
+    if(!month){
+      return head.concat(['Wala pong klase ngayong araw.'], foot).join('\n');
+    }
+    const data = getMonthData(month);
+    if(data.holidays.includes(dayNum)){
+      return head.concat(['Walang pasok ngayong araw.'], foot).join('\n');
+    }
+
+    const listed = students.filter(s => sf2AppearsInMonth(s, month)
+      && sf2EnrolledOnDay(s, month, dayNum));
+    const absent = [], late = [];
+    listed.forEach(s=>{
+      const mark = data.marks[s.id] && data.marks[s.id][dayNum];
+      if(mark === 'A') absent.push(s);
+      else if(mark === 'L') late.push(s);
+    });
+    const byName = (a,b) => gcLearnerLabel(a,'surname').localeCompare(gcLearnerLabel(b,'surname'));
+    absent.sort(byName); late.sort(byName);
+
+    const body = [];
+    if(absent.length === 0 && late.length === 0){
+      body.push(`Kumpleto po ang pagpasok ngayong araw — ${listed.length} learner.`);
+      body.push('Maraming salamat po sa inyong suporta.');
+      return head.concat(body, foot).join('\n');
+    }
+
+    /* Kasama ang buwanang kabuuan para makita kung paulit-ulit na. */
+    const tally = s => {
+      const t = sf2EnrolledTotals(s, month);
+      const bits = [];
+      if(t.absent) bits.push(`${t.absent} absent`);
+      if(withLate && t.late) bits.push(`${t.late} late`);
+      return bits.length ? ` (${bits.join(', ')} ngayong buwan)` : '';
+    };
+
+    if(absent.length){
+      body.push(`ABSENT (${absent.length}):`);
+      absent.forEach(s => body.push(`• ${gcLearnerLabel(s, style)}${tally(s)}`));
+    }
+    if(withLate && late.length){
+      if(body.length) body.push('');
+      body.push(`LATE (${late.length}):`);
+      late.forEach(s => body.push(`• ${gcLearnerLabel(s, style)}${tally(s)}`));
+    }
+    body.push('');
+    body.push(`Present po ang ${listed.length - absent.length - late.length} sa ${listed.length} learner.`);
+
+    return head.concat(body, closing, foot).join('\n');
+  }
+
+  /* ---------- BUONG BUWAN ---------- */
   const monthLabel = attMonth.charAt(0) + attMonth.slice(1).toLowerCase();
   const year = yearForMonth(attMonth);
-
   const listed = students.filter(s => sf2AppearsInMonth(s, attMonth));
   const rows = listed.map(s=>{
     const t = sf2EnrolledTotals(s, attMonth);
@@ -8540,37 +8627,22 @@ function gcBuildMessage(){
   rows.sort((a,b) => (b.absent - a.absent) || (b.late - a.late)
     || gcLearnerLabel(a.s,'surname').localeCompare(gcLearnerLabel(b.s,'surname')));
 
-  const head = [
-    `Magandang araw po sa lahat ng magulang at tagapag-alaga.`,
-    ``,
-    `Narito po ang talaan ng pagpasok para sa buwan ng ${monthLabel} ${year}`
-      + ` — ${d.gradeLevel ? 'Grade ' + d.gradeLevel : ''}${d.section ? ' ' + d.section : ''}.`.replace(/\s+/g,' '),
-    ``
-  ];
+  const head = ['Magandang araw po sa lahat ng magulang at tagapag-alaga.', '',
+    `Narito po ang talaan ng pagpasok para sa buwan ng ${monthLabel} ${year}${cls ? ' — ' + cls : ''}.`, ''];
 
-  let body;
   if(rows.length === 0){
-    body = [`Wala pong learner na umabot sa ${min} absent o late ngayong buwan.`,
-            `Maraming salamat po sa inyong suporta.`];
-  } else {
-    body = rows.map(r=>{
-      const bits = [];
-      if(r.absent) bits.push(`${r.absent} absent`);
-      if(withLate && r.late) bits.push(`${r.late} late`);
-      return `• ${gcLearnerLabel(r.s, style)} — ${bits.join(', ')}`;
-    });
-    body.push('');
-    body.push(`Hinihiling po namin ang inyong tulong upang matiyak ang regular na pagpasok`
-      + ` ng inyong anak. Kung may kalagayan pong nakakaapekto sa kanilang pag-aaral,`
-      + ` maaari po kayong makipag-ugnayan sa akin nang sarilinan.`);
-    body.push('');
-    body.push(`Maraming salamat po.`);
+    return head.concat([`Wala pong learner na umabot sa ${min} absent o late ngayong buwan.`,
+      'Maraming salamat po sa inyong suporta.'], foot).join('\n');
   }
 
-  const foot = ['', d.adviser ? `${d.adviser}` : '', d.adviser ? 'Class Adviser' : '']
-    .filter((x,i)=> i === 0 || x);
+  const body = rows.map(r=>{
+    const bits = [];
+    if(r.absent) bits.push(`${r.absent} absent`);
+    if(withLate && r.late) bits.push(`${r.late} late`);
+    return `• ${gcLearnerLabel(r.s, style)} — ${bits.join(', ')}`;
+  });
 
-  return head.concat(body).concat(foot).join('\n');
+  return head.concat(body, closing, foot).join('\n');
 }
 
 function gcRefresh(){
@@ -8581,7 +8653,9 @@ function openGcDialog(){
   if(students.length === 0){ showToast('Walang laman ang Masterlist.', true); return; }
   const monthLabel = attMonth.charAt(0) + attMonth.slice(1).toLowerCase();
   document.getElementById('gcSubtitle').textContent =
-    `Batay sa talaan ng ${monthLabel} ${yearForMonth(attMonth)}`;
+    `Talaan ng ${monthLabel} ${yearForMonth(attMonth)} — piliin sa ibaba kung araw o buwan`;
+  document.getElementById('gcThresholdWrap').style.display =
+    document.getElementById('gcScope').value === 'today' ? 'none' : 'block';
   gcRefresh();
   const ov = document.getElementById('gcOverlay');
   ov.hidden = false; ov.style.display = 'flex';
@@ -8595,8 +8669,13 @@ function closeGcDialog(){
   const btn = document.getElementById('btnGcMessage');
   if(!btn) return;
   btn.addEventListener('click', openGcDialog);
-  ['gcNameStyle','gcThreshold','gcIncludeLate'].forEach(id=>{
-    document.getElementById(id).addEventListener('change', gcRefresh);
+  ['gcNameStyle','gcScope','gcThreshold','gcIncludeLate'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', ()=>{
+      // Ang threshold ay para lamang sa buwanang buod.
+      document.getElementById('gcThresholdWrap').style.display =
+        document.getElementById('gcScope').value === 'today' ? 'none' : 'block';
+      gcRefresh();
+    });
   });
   document.getElementById('gcClose').addEventListener('click', closeGcDialog);
   document.getElementById('gcOverlay').addEventListener('click', (e)=>{
