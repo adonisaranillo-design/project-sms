@@ -1446,6 +1446,7 @@
           <button class="btn btn-gold" id="btnSecPublish">&#128228; I-publish ang klase sa secretary</button>
           <button class="btn" id="btnSecPull">&#128229; Kunin ang mga naipasok</button>
           <button class="btn" id="btnSecRevoke">&#128683; Bawiin ang access</button>
+          <button class="btn" id="btnSecDiag">&#128269; Suriin</button>
           <div class="spacer"></div>
           <span id="secInfo" style="font-size:11.5px; color:var(--ink-soft);"></span>
         </div>
@@ -8056,12 +8057,12 @@ function closeMobileDetail(fromHistory){
    ========================================================= */
 const SEC_SEEN_KEY = 'sms_secretary_seen_v1';
 
+/* Ang UID mismo ng guro ang pangalan ng dokumento. Isang guro, isang
+   dokumento — imposibleng magdoble. Sa maraming guro, hiwalay ang bawat
+   isa at may sariling secretary. Dating depekto: random na id, kaya
+   tuwing nawawala ito sa setup ay gumagawa ng panibagong kopya. */
 function secClassId(){
-  if(!setupData.secretaryClassId){
-    setupData.secretaryClassId = 'cls_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    saveSetup(setupData);
-  }
-  return setupData.secretaryClassId;
+  return (currentUser && currentUser.uid) || setupData.secretaryClassId || '';
 }
 function secEmail(){ return (setupData.secretaryEmail || '').trim().toLowerCase(); }
 
@@ -8126,7 +8127,14 @@ function secApplyMarks(marks){
       }
     });
   });
-  if(applied) saveAttendance();
+  if(applied){
+    saveAttendance();
+    /* Mahalaga ito: ang saveAttendance ay sa browser lang nagse-save.
+       Ang flashSaved ang nagtutulak sa cloud na dokumento mo — kung wala
+       ito, nawawala ang markang galing sa secretary pagkatapos mag-logout,
+       dahil nililinis ang browser at ang cloud ang babasahin sa pagbalik. */
+    if(typeof flashSaved === 'function') flashSaved();
+  }
   return { applied, byMonth };
 }
 
@@ -8217,6 +8225,47 @@ function secErrorMessage(err, action){
    naka-imbak na id. Ang setup ay napapalitan tuwing nagsa-sign in mula
    sa cloud — kapag nawala roon ang id, iba nang dokumento ang hahanapin
    at parang walang laman kahit meron naman. */
+/* Pantulong sa pagsuri: ipinapakita kung aling account ang nakasign-in
+   at aling dokumento ang nakita — para maikumpara sa Firestore Console. */
+async function secDiagnose(){
+  const host = document.getElementById('secLog');
+  const lines = [];
+  const row = (k, v) => `<div style="display:flex; gap:10px; padding:4px 0; border-bottom:1px solid var(--line); font-size:11.5px;">
+      <span style="flex:0 0 150px; color:var(--ink-soft);">${k}</span>
+      <span style="flex:1; font-family:monospace; word-break:break-all;">${escapeHtml(String(v))}</span></div>`;
+
+  lines.push(row('Naka-sign in', currentUser ? currentUser.email : '(wala)'));
+  lines.push(row('Iyong UID', currentUser ? currentUser.uid : '(wala)'));
+  lines.push(row('Email ng secretary', secEmail() || '(wala pa)'));
+  lines.push(row('Naka-imbak na ID', setupData.secretaryClassId || '(wala pa)'));
+
+  if(fbAvailable && currentUser){
+    try{
+      const snap = await fbDb.collection('class_attendance')
+        .where('ownerUid', '==', currentUser.uid).get();
+      lines.push(row('Nahanap na klase', snap.size + ' dokumento'));
+      snap.docs.forEach(d=>{
+        const dd = d.data();
+        const days = Object.keys(dd.marks || {}).length;
+        const when = dd.updatedAt ? new Date(dd.updatedAt).toLocaleString('en-PH') : '—';
+        lines.push(row(d.id, `${days} araw &middot; huling sulat: ${dd.updatedBy || '?'} &middot; ${when}`));
+      });
+      if(snap.empty){
+        lines.push(row('Babala', 'Walang klaseng pag-aari ng account na ito. '
+          + 'Kung may nakikita kang dokumento sa Firestore, ibang account ang gumawa n\'un — '
+          + 'tingnan ang ownerUid doon at ikumpara sa UID sa itaas.'));
+      }
+    }catch(err){
+      lines.push(row('Error', secErrorMessage(err, 'pull')));
+    }
+  } else {
+    lines.push(row('Babala', 'Hindi naka-sign in sa cloud.'));
+  }
+
+  host.innerHTML = `<div style="font-size:10px; text-transform:uppercase; letter-spacing:.07em;
+      color:var(--navy); font-weight:700; margin-bottom:5px;">Resulta ng pagsuri</div>${lines.join('')}`;
+}
+
 async function secFindDoc(){
   if(!fbAvailable || !currentUser) return null;
   try{
@@ -8228,11 +8277,13 @@ async function secFindDoc(){
        bagong dokumento ang I-publish. Kaya posibleng maraming kopya —
        at magkaibang kopya ang binabasa ng adviser at sinusulatan ng
        secretary. Pagsasamahin natin sila sa isa. */
+    const targetId = currentUser.uid;
     const docs = snap.docs.slice().sort((a, b) =>
       (b.data().updatedAt || 0) - (a.data().updatedAt || 0));
-    const keep = docs[0];
+    const exact = docs.find(d => d.id === targetId);
 
-    if(docs.length > 1){
+    /* Ilipat ang lahat sa dokumentong pinangalanan sa UID. */
+    if(docs.length > 1 || !exact){
       const mergedMarks = {};
       const mergedLog = [];
       /* Mula sa pinakaluma papuntang pinakabago, para ang bagong halaga
@@ -8246,28 +8297,44 @@ async function secFindDoc(){
       });
       mergedLog.sort((a, b) => (a.at || 0) - (b.at || 0));
 
-      await keep.ref.update({
+      const newest = docs[0].data();
+      const targetRef = fbDb.collection('class_attendance').doc(targetId);
+      await targetRef.set({
+        ownerUid: currentUser.uid,
+        secretaryEmail: newest.secretaryEmail || secEmail(),
+        backdays: newest.backdays !== undefined ? newest.backdays : 3,
+        schoolName: newest.schoolName || setupData.schoolName || '',
+        gradeLevel: newest.gradeLevel || '',
+        section: newest.section || '',
+        schoolYear: newest.schoolYear || setupData.schoolYear || '',
+        adviser: newest.adviser || setupData.adviser || '',
+        roster: newest.roster || secRoster(),
+        holidays: newest.holidays || [],
         marks: mergedMarks,
         log: mergedLog.slice(-30),
         updatedAt: Date.now(),
         updatedBy: 'teacher'
       });
-      for(const d of docs.slice(1)){
+      let removed = 0;
+      for(const d of docs){
+        if(d.id === targetId) continue;
         await d.ref.delete().catch(()=>{});
+        removed++;
       }
-      const days = Object.keys(mergedMarks).length;
-      showToast(`Pinagsama ang ${docs.length} kopya ng klase — ${days} araw ang nailigtas.`);
-      const fresh = await keep.ref.get();
-      setupData.secretaryClassId = keep.id;
+      setupData.secretaryClassId = targetId;
       saveSetup(setupData);
-      return fresh;
+      if(removed){
+        const days = Object.keys(mergedMarks).length;
+        showToast(`Pinagsama ang ${removed + 1} kopya ng klase — ${days} araw ang nailigtas.`);
+      }
+      return await targetRef.get();
     }
 
-    if(setupData.secretaryClassId !== keep.id){
-      setupData.secretaryClassId = keep.id;
+    if(setupData.secretaryClassId !== exact.id){
+      setupData.secretaryClassId = exact.id;
       saveSetup(setupData);
     }
-    return keep;
+    return exact;
   }catch(err){
     console.warn('Hindi mahanap ang class doc', err);
     return null;
@@ -9012,6 +9079,7 @@ document.getElementById('btnToMobile').addEventListener('click', ()=>{
   wrap('btnSecPublish', secPublish);
   wrap('btnSecPull', secPull);
   wrap('btnSecRevoke', secRevoke);
+  wrap('btnSecDiag', secDiagnose);
 })();
 
 document.getElementById('btnPortalOpenAll').addEventListener('click', ()=>{
