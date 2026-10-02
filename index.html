@@ -1382,40 +1382,6 @@
       </div>
 
 
-      <div class="card">
-        <h2><span class="num">3</span> Attendance ng Class Secretary</h2>
-        <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
-          Bibigyan mo ng sariling portal ang class secretary para siya ang mag-encode ng
-          araw-araw na attendance. <strong>Attendance lang ang maaabot niya</strong> — walang grades,
-          walang LRN, walang impormasyon ng magulang. Bawat marka ay may tala kung sino ang
-          naglagay at kailan.
-        </p>
-
-        <div class="grid g2" style="margin-top:12px;">
-          <div class="field">
-            <label>Email ng secretary</label>
-            <input type="email" id="secEmail" placeholder="email@example.com">
-          </div>
-          <div class="field">
-            <label>Hanggang ilang araw pabalik</label>
-            <select id="secBackdays">
-              <option value="0">Ngayong araw lang</option>
-              <option value="3" selected>Hanggang 3 araw pabalik</option>
-              <option value="7">Hanggang 7 araw pabalik</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="toolbar" style="margin-top:12px;">
-          <button class="btn btn-gold" id="btnSecPublish">&#128228; I-publish ang klase sa secretary</button>
-          <button class="btn" id="btnSecPull">&#128229; Kunin ang mga naipasok</button>
-          <button class="btn" id="btnSecRevoke">&#128683; Bawiin ang access</button>
-          <div class="spacer"></div>
-          <span id="secInfo" style="font-size:11.5px; color:var(--ink-soft);"></span>
-        </div>
-
-        <div id="secLog" style="margin-top:12px;"></div>
-      </div>
       <div class="card" style="padding:0; overflow-x:auto;">
         <table id="portalTable">
           <thead>
@@ -1450,6 +1416,41 @@
         <button class="btn btn-sm" id="btnGcMessage">&#128172; Bumuo ng mensahe sa GC</button>
         <div class="spacer"></div>
         <span style="font-size:11.5px; color:var(--ink-soft);">Click a date sa column header para markahan bilang <strong>No Class</strong>. Click ang cell ng estudyante para i-cycle: <strong style="color:var(--ok);">Present</strong> → <strong style="color:var(--danger);">Absent</strong> → <strong style="color:#a3690a;">Late</strong> → <strong style="color:var(--male);">Modular/Distance</strong>. 3 Late = 1 Absent (auto-compute) &mdash; ang ikatlong late ay may <strong>*</strong> at pulang border, at 'yun ang lalagyan ng <strong>x</strong> sa SF2.</span>
+      </div>
+
+      <div class="card">
+        <h2><span class="num">&#128100;</span> Attendance ng Class Secretary</h2>
+        <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
+          Bibigyan mo ng sariling portal ang class secretary para siya ang mag-encode ng
+          araw-araw na attendance. <strong>Attendance lang ang maaabot niya</strong> — walang grades,
+          walang LRN, walang impormasyon ng magulang. Bawat marka ay may tala kung sino ang
+          naglagay at kailan.
+        </p>
+
+        <div class="grid g2" style="margin-top:12px;">
+          <div class="field">
+            <label>Email ng secretary</label>
+            <input type="email" id="secEmail" placeholder="email@example.com">
+          </div>
+          <div class="field">
+            <label>Hanggang ilang araw pabalik</label>
+            <select id="secBackdays">
+              <option value="0">Ngayong araw lang</option>
+              <option value="3" selected>Hanggang 3 araw pabalik</option>
+              <option value="7">Hanggang 7 araw pabalik</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="toolbar" style="margin-top:12px;">
+          <button class="btn btn-gold" id="btnSecPublish">&#128228; I-publish ang klase sa secretary</button>
+          <button class="btn" id="btnSecPull">&#128229; Kunin ang mga naipasok</button>
+          <button class="btn" id="btnSecRevoke">&#128683; Bawiin ang access</button>
+          <div class="spacer"></div>
+          <span id="secInfo" style="font-size:11.5px; color:var(--ink-soft);"></span>
+        </div>
+
+        <div id="secLog" style="margin-top:12px;"></div>
       </div>
 
       <div class="stat-row" id="attStatRow"></div>
@@ -1969,15 +1970,15 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(v === 'summary'){ renderSummaryView(); }
     if(v === 'report'){ renderReportView(); }
     if(v === 'eclass'){ renderEclassList(); }
-    if(v === 'portal'){
-      renderPortalView();
+    if(v === 'portal'){ renderPortalView(); }
+    if(v === 'attendance'){
+      renderAttendanceView();
       document.getElementById('secEmail').value = setupData.secretaryEmail || '';
       if(setupData.secretaryBackdays !== undefined){
         document.getElementById('secBackdays').value = String(setupData.secretaryBackdays);
       }
       secCheckForUpdates();
     }
-    if(v === 'attendance'){ renderAttendanceView(); }
     if(v === 'awards'){ renderAwardsView(); }
     if(v === 'archives'){ renderArchivesList(); }
     if(v === 'versions'){ renderVersionsList(); }
@@ -8121,6 +8122,25 @@ function secApplyMarks(marks){
   return { applied, byMonth };
 }
 
+/* Tiyak na mensahe kada uri ng error, para alam agad kung ano ang aayusin. */
+function secErrorMessage(err, action){
+  const code = (err && err.code) || '';
+  if(code === 'permission-denied' || code === 'PERMISSION_DENIED'){
+    return action === 'pull'
+      ? 'Walang access, o wala pang na-publish na klase. Pindutin muna ang "I-publish ang klase sa secretary". '
+        + 'Kung na-publish na, tiyaking na-paste at na-publish ang bagong security rules sa Firebase.'
+      : 'Tinanggihan ng Firebase. Tiyaking na-paste at na-publish mo ang bagong security rules '
+        + '(may bahagi para sa class_attendance).';
+  }
+  if(code === 'unavailable' || code === 'failed-precondition'){
+    return 'Walang koneksiyon sa internet. Subukang muli mamaya.';
+  }
+  if(code === 'unauthenticated'){
+    return 'Nag-expire ang sign-in mo sa cloud. Mag-sign in ulit.';
+  }
+  return 'May error: ' + (err && err.message ? err.message : 'hindi matukoy') + '.';
+}
+
 async function secPublish(){
   if(!fbAvailable || !currentUser){
     showToast('Kailangan munang naka-sign in sa cloud.', true); return;
@@ -8157,6 +8177,7 @@ async function secPublish(){
   });
   secRenderInfo(`Na-publish — ${secRoster().length} learner, hanggang ${backdays} araw pabalik.`);
   showToast('Na-publish na. Puwede nang mag-sign up ang secretary.');
+  localStorage.setItem(SEC_SEEN_KEY, String(Date.now()));
 }
 
 async function secPull(options){
@@ -8165,9 +8186,18 @@ async function secPull(options){
     if(!quiet) showToast('Kailangan munang naka-sign in sa cloud.', true);
     return null;
   }
-  const snap = await fbDb.collection('class_attendance').doc(secClassId()).get();
+  let snap;
+  try{
+    snap = await fbDb.collection('class_attendance').doc(secClassId()).get();
+  }catch(err){
+    console.error(err);
+    /* Kapag wala pang dokumento, ang rules ay walang masusuri kaya
+       "permission-denied" ang ibinabalik — hindi "not found". */
+    if(!quiet) showToast(secErrorMessage(err, 'pull'), true);
+    return null;
+  }
   if(!snap.exists){
-    if(!quiet) showToast('Wala pang na-publish na klase.', true);
+    if(!quiet) showToast('Wala pang na-publish na klase. Pindutin muna ang I-publish.', true);
     return null;
   }
   const data = snap.data();
@@ -8810,12 +8840,16 @@ document.getElementById('btnToMobile').addEventListener('click', ()=>{
 (function(){
   const wrap = (id, fn) => {
     const b = document.getElementById(id);
+    // `id` ay nasa saklaw na ng closure — gamitin ito sa mensahe ng error.
     if(!b) return;
     b.addEventListener('click', async ()=>{
       const t = b.textContent;
       b.disabled = true; b.textContent = 'Sandali...';
       try{ await fn(); }
-      catch(err){ console.error(err); showToast('May error. Suriin ang security rules sa Firebase.', true); }
+      catch(err){
+        console.error(err);
+        showToast(secErrorMessage(err, id === 'btnSecPull' ? 'pull' : 'write'), true);
+      }
       finally{ b.disabled = false; b.textContent = t; }
     });
   };
