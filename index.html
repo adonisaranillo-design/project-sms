@@ -1809,6 +1809,9 @@ async function handleSuccessfulLogin(user){
       }
       applyFullState(doc.data());
       maybeCreateDailyVersion();
+      // Simulan agad ang pakikinig sa secretary, kahit nasa ibang tab —
+      // dito nakasalalay ang araw-araw na pagiging updated ng attendance.
+      if(typeof secStartListening === 'function') secStartListening();
     } else {
       // existing account somehow has no cloud doc yet — default to blank
       // rather than silently uploading whatever is sitting in local storage
@@ -1902,6 +1905,7 @@ document.getElementById('btnSkipAuth').addEventListener('click', ()=>{
 });
 document.getElementById('btnAccountMenu').addEventListener('click', ()=>{
   if(confirm('Gusto mo bang mag-logout?\n\nPara sa privacy (lalo na kung shared na computer ito), aalisin din ang naka-save na data sa browser na ito.')){
+    if(typeof secStopListening === 'function') secStopListening();
     fbAuth.signOut().then(()=>{
       // clear all local caches so the next person on this device doesn't see this account's data
       [STORE_KEYS.setup, STORE_KEYS.students, GSTORE_KEYS.subjects, GSTORE_KEYS.grades, GSTORE_KEYS.gctx, ATT_STORE_KEY, 'sms_att_month_v1'].forEach(k=> localStorage.removeItem(k));
@@ -1978,6 +1982,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
         document.getElementById('secBackdays').value = String(setupData.secretaryBackdays);
       }
       secCheckForUpdates();
+      secStartListening();
     }
     if(v === 'awards'){ renderAwardsView(); }
     if(v === 'archives'){ renderArchivesList(); }
@@ -3937,7 +3942,10 @@ function getMonthData(month){
   if(!attendance[month]) attendance[month] = { holidays: [], marks: {} };
   return attendance[month];
 }
-function saveAttendance(){ saveJSON(ATT_STORE_KEY, attendance); }
+function saveAttendance(){
+  saveJSON(ATT_STORE_KEY, attendance);
+  if(typeof secSchedulePush === 'function') secSchedulePush();
+}
 
 function schoolYearStartYear(){
   const sy = (setupData.schoolYear || '').match(/(\d{4})\s*-\s*(\d{4})/);
@@ -8122,6 +8130,69 @@ function secApplyMarks(marks){
   return { applied, byMonth };
 }
 
+/* =========================================================
+   TULUY-TULOY NA SYNC SA SECRETARY
+   Layunin: araw-araw na nakikita ang attendance kahit hindi
+   kinukuha ang hard copy. Dalawang direksyon:
+     - Pakikinig: kapag nag-save ang secretary, agad pumapasok.
+     - Pagtulak: kapag ikaw ang nag-encode, agad napupunta sa
+       cloud para hindi na ito pinapalitan ng lumang kopya.
+   ========================================================= */
+let secUnsubscribe = null;       // tagapagsara ng listener
+let secApplyingRemote = false;   // panangga laban sa paikot na pag-save
+let secPushTimer = null;
+
+/* Itulak ang lokal na marka papunta sa cloud, may kaunting antala
+   para hindi isang sulat kada pindot. */
+function secSchedulePush(){
+  if(secApplyingRemote) return;                 // galing sa cloud — huwag ibalik
+  if(!fbAvailable || !currentUser || !secEmail()) return;
+  if(!setupData.secretaryClassId) return;       // hindi pa na-publish kailanman
+  clearTimeout(secPushTimer);
+  secPushTimer = setTimeout(async ()=>{
+    try{
+      await fbDb.collection('class_attendance').doc(secClassId()).update({
+        marks: secLocalMarks(),
+        updatedAt: Date.now(),
+        updatedBy: 'teacher'
+      });
+    }catch(err){ console.warn('Hindi naitulak ang attendance', err); }
+  }, 1500);
+}
+
+/* Makinig sa dokumento. Kapag ang secretary ang nagsulat, isama agad. */
+function secStartListening(){
+  secStopListening();
+  if(!fbAvailable || !currentUser || !secEmail()) return;
+  if(!setupData.secretaryClassId) return;
+  try{
+    secUnsubscribe = fbDb.collection('class_attendance').doc(secClassId())
+      .onSnapshot(snap=>{
+        if(!snap.exists) return;
+        const data = snap.data();
+        secRenderLog(data);
+        if(data.updatedBy !== 'secretary') return;     // sarili nating sulat
+
+        secApplyingRemote = true;
+        const res = secApplyMarks(data.marks);
+        secApplyingRemote = false;
+
+        localStorage.setItem(SEC_SEEN_KEY, String(data.updatedAt || 0));
+        if(res.applied){
+          const view = document.getElementById('view-attendance');
+          if(view && !view.hidden) renderAttendanceView();
+          const months = Object.keys(res.byMonth).map(m => `${m} (${res.byMonth[m]})`).join(', ');
+          showToast(`${res.applied} bagong marka mula sa secretary — ${months}.`);
+          secRenderInfo('Huling update mula sa secretary: ' + new Date(data.updatedAt).toLocaleString('en-PH'));
+        }
+      }, err => console.warn('Natigil ang pakikinig', err));
+  }catch(err){ console.warn('Hindi makapakinig', err); }
+}
+
+function secStopListening(){
+  if(secUnsubscribe){ try{ secUnsubscribe(); }catch(e){} secUnsubscribe = null; }
+}
+
 /* Tiyak na mensahe kada uri ng error, para alam agad kung ano ang aayusin. */
 function secErrorMessage(err, action){
   const code = (err && err.code) || '';
@@ -8154,6 +8225,23 @@ async function secPublish(){
   saveSetup(setupData);
 
   const id = secClassId();
+
+  /* Kunin muna ang nasa cloud. Kung may naipasok na ang secretary na hindi
+     pa nakukuha, isama muna sa lokal bago magsulat — kung hindi, mabubura. */
+  let cloudMarks = {};
+  try{
+    const prev = await fbDb.collection('class_attendance').doc(id).get();
+    if(prev.exists){
+      const pd = prev.data();
+      cloudMarks = pd.marks || {};
+      const merged = secApplyMarks(cloudMarks);
+      if(merged.applied){
+        renderAttendanceView();
+        showToast(`Naisama muna ang ${merged.applied} markang galing sa secretary.`);
+      }
+    }
+  }catch(err){ /* bagong dokumento pa lang — tuloy lang */ }
+
   await fbDb.collection('class_attendance').doc(id).set({
     ownerUid: currentUser.uid,
     secretaryEmail: email,
@@ -8178,6 +8266,7 @@ async function secPublish(){
   secRenderInfo(`Na-publish — ${secRoster().length} learner, hanggang ${backdays} araw pabalik.`);
   showToast('Na-publish na. Puwede nang mag-sign up ang secretary.');
   localStorage.setItem(SEC_SEEN_KEY, String(Date.now()));
+  secStartListening();
 }
 
 async function secPull(options){
@@ -8201,11 +8290,10 @@ async function secPull(options){
     return null;
   }
   const data = snap.data();
-  if(data.updatedBy !== 'secretary'){
-    if(!quiet) showToast('Wala pang bagong ipinasok ang secretary.');
-    secRenderLog(data);
-    return data;
-  }
+  /* Laging isinasama ang laman ng cloud. Ligtas itong ulit-ulitin —
+     kung walang pagkakaiba, zero ang maidadagdag. Hindi na tinitingnan
+     kung sino ang huling sumulat, dahil puwedeng ang adviser mismo ang
+     huling nag-publish pagkatapos mag-encode ng secretary. */
   const res = secApplyMarks(data.marks);
   secRenderLog(data);
   if(res.applied){
@@ -8213,13 +8301,16 @@ async function secPull(options){
     const months = Object.keys(res.byMonth).map(m => `${m} (${res.byMonth[m]})`).join(', ');
     showToast(`Naisama ang ${res.applied} markang galing sa secretary — ${months}.`);
   } else if(!quiet){
-    showToast('Wala nang bagong marka — tugma na ang lahat.');
+    const n = Object.keys(data.marks || {}).length;
+    showToast(n
+      ? `Tugma na ang lahat — walang bagong marka. (${n} araw ang nasa cloud.)`
+      : 'Wala pang naipasok na marka ang secretary.');
   }
   localStorage.setItem(SEC_SEEN_KEY, String(data.updatedAt || 0));
   return data;
 }
 
-async function secRevoke(){
+async function secRevokeInner(){
   if(!fbAvailable || !currentUser){ showToast('Kailangan munang naka-sign in sa cloud.', true); return; }
   if(!confirm('Babawiin ang access ng secretary. Mananatili ang lahat ng naitalang attendance. Ituloy?')) return;
   await fbDb.collection('class_attendance').doc(secClassId()).delete().catch(()=>{});
@@ -8229,6 +8320,7 @@ async function secRevoke(){
   secRenderInfo('Nabawi na ang access.');
   showToast('Nabawi na ang access ng secretary.');
 }
+async function secRevoke(){ secStopListening(); return secRevokeInner(); }
 
 function secRenderInfo(text){
   const el = document.getElementById('secInfo');
@@ -8261,7 +8353,7 @@ async function secCheckForUpdates(){
     const data = snap.data();
     secRenderLog(data);
     const seen = parseInt(localStorage.getItem(SEC_SEEN_KEY) || '0');
-    if(data.updatedBy === 'secretary' && (data.updatedAt || 0) > seen){
+    if((data.updatedAt || 0) > seen && data.updatedBy === 'secretary'){
       const when = new Date(data.updatedAt).toLocaleString('en-PH');
       secRenderInfo(`May bagong ipinasok ang secretary — ${when}`);
       showToast('May bagong attendance mula sa secretary. Pindutin ang "Kunin ang mga naipasok".');
