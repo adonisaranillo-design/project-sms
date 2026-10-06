@@ -744,6 +744,15 @@
       </div>
     </div>
 
+    <div class="field" id="anecMonthsWrap" style="display:none;">
+      <label>Saklaw na buwan (hindi naka-total — kada buwan ang bilang)</label>
+      <div id="anecMonths" style="display:flex; flex-wrap:wrap; gap:7px; padding:9px 10px;
+        border:1px solid var(--line); border-radius:7px; background:var(--paper);"></div>
+      <div style="font-size:10.5px; color:var(--ink-soft); margin-top:3px;">
+        Ang buwang napag-usapan na sa naunang insidente ay may tsek ng tapos — bagong bilang na ang susunod.
+      </div>
+    </div>
+
     <div class="field">
       <label>Ano ang nangyari (ilalagay ito sa Kasunduan)</label>
       <textarea id="anecDlgIncident" rows="3" style="width:100%; font-family:inherit; font-size:13px; line-height:1.6; resize:vertical;"
@@ -760,6 +769,12 @@
       <label>Kung hindi matupad</label>
       <textarea id="anecDlgConsequence" rows="2" style="width:100%; font-family:inherit; font-size:13px; line-height:1.6; resize:vertical;"
         placeholder="Hal.: ipatatawag po ang aking magulang at isasangguni sa School Discipline Committee."></textarea>
+    </div>
+
+    <div class="field">
+      <label>Aksyong ginawa (Offenses and Consequences)</label>
+      <select id="anecDlgAction"></select>
+      <div id="anecActionHint" style="font-size:10.5px; color:var(--ink-soft); margin-top:3px;"></div>
     </div>
 
     <div class="field">
@@ -1703,6 +1718,18 @@
         <div id="anecContext"></div>
       </div>
 
+      <div class="card" id="admitCard" hidden>
+        <h2><span class="num">&#127915;</span> Admission Slip</h2>
+        <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
+          Ayon sa <strong>1.3</strong>, kada ikatlong unexcused tardy ay may isang admission slip mula sa
+          guidance office — ang una at ikalawa ay sagot ng adviser. Ayon naman sa <strong>1.5</strong>,
+          kada tatlo o higit pang sunod-sunod na absent ay may isa ring slip, pagkatapos ng excuse letter.
+          Awtomatikong tinutukoy dito kung ilan ang dapat niyang kunin.
+        </p>
+        <div id="admitSummary" style="margin-top:12px;"></div>
+        <div id="admitList" style="margin-top:12px;"></div>
+      </div>
+
       <div class="card">
         <h2><span class="num">3</span> Mga naitalang insidente</h2>
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
@@ -2114,6 +2141,7 @@ function collectFullState(){
     portalAccess: (typeof portalAccess !== 'undefined' ? portalAccess : {}),
     seatPlan: (typeof seatPlan !== 'undefined' ? seatPlan : null),
     anecdotal: (typeof anecdotal !== 'undefined' ? anecdotal : {}),
+    admissionLog: (typeof admissionLog !== 'undefined' ? admissionLog : {}),
     updatedAt: Date.now()
   };
 }
@@ -2141,6 +2169,10 @@ function applyFullState(data){
   if(typeof anecdotal !== 'undefined'){
     anecdotal = data.anecdotal || {};
     saveJSON(ANEC_STORE_KEY, anecdotal);
+  }
+  if(typeof admissionLog !== 'undefined'){
+    admissionLog = data.admissionLog || {};
+    saveJSON(ADMIT_STORE_KEY, admissionLog);
   }
   if(typeof seatPlan !== 'undefined' && data.seatPlan){
     seatPlan = data.seatPlan;
@@ -10049,6 +10081,204 @@ function offenseConsequence(studentId, idx){
 
 
 /* =========================================================
+   ADMISSION SLIP TRACKER — Article X, 1.3 at 1.5
+   Dalawang pagkakataon lang may utang na slip:
+     1.3 — kada ikatlong unexcused tardy (ang una at ikalawa
+           ay sagot ng adviser)
+     1.5 — kada episode ng 3 o higit pang sunod-sunod na absent
+   Ang isang araw na absent (1.4) ay excuse letter lamang.
+   ========================================================= */
+const ADMIT_STORE_KEY = 'sms_admission_v1';
+let admissionLog = loadJSON(ADMIT_STORE_KEY, {});   // { studentId: { obligationId: {...} } }
+function saveAdmission(){ saveJSON(ADMIT_STORE_KEY, admissionLog); flashSaved(); }
+
+/* Lahat ng araw ng pasok sa buong taon, sunod-sunod. */
+function schoolDaysTimeline(s){
+  const out = [];
+  MONTHS_ORDER.forEach(month=>{
+    if(!monthHasStarted(month)) return;
+    const md = getMonthData(month);
+    const conv = lateConvertedDays(s.id, month);
+    const marks = (md.marks && md.marks[s.id]) || {};
+    weekdaysInMonth(month)
+      .filter(d => !md.holidays.includes(d.day))
+      .sort((a,b)=> a.day - b.day)
+      .forEach(d=>{
+        if(!sf2EnrolledOnDay(s, month, d.day)) return;
+        out.push({
+          month, day:d.day,
+          iso:`${yearForMonth(month)}-${String(MONTH_JS_INDEX[month]+1).padStart(2,'0')}-${String(d.day).padStart(2,'0')}`,
+          absent: sf2DayAbsent(s.id, month, d.day, conv),
+          late: marks[d.day] === 'L'
+        });
+      });
+  });
+  return out;
+}
+
+function admitFmt(iso){
+  const d = new Date(iso + 'T00:00:00');
+  return isNaN(d) ? iso : d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+
+/* Ang listahan ng utang na slip, may tiyak na id para hindi mawala
+   ang markang "nakakuha na" kahit magbago ang attendance. */
+function admissionObligations(s){
+  const tl = schoolDaysTimeline(s);
+  const out = [];
+
+  /* 1.3 — kada ikatlong late */
+  let lateCount = 0, group = [];
+  tl.forEach(d=>{
+    if(!d.late) return;
+    lateCount++; group.push(d);
+    if(lateCount % 3 === 0){
+      out.push({
+        id:'T' + (lateCount / 3),
+        kind:'tardy',
+        rule:'1.3',
+        iso:d.iso,
+        label:`Ika-${lateCount/3} slip mula sa late`,
+        detail:`Ika-${lateCount-2} hanggang ika-${lateCount} na late (${group.slice(-3).map(x=>admitFmt(x.iso)).join(', ')}) — `
+          + 'katumbas ng isang araw na unexcused absence.'
+      });
+    }
+  });
+
+  /* 1.5 — kada episode ng 3+ sunod-sunod na absent */
+  let run = [];
+  const flush = ()=>{
+    if(run.length >= 3){
+      out.push({
+        id:'A' + run[0].iso,
+        kind:'absence',
+        rule:'1.5',
+        iso:run[run.length-1].iso,
+        label:`${run.length} araw na sunod-sunod na absent`,
+        detail:`${admitFmt(run[0].iso)} hanggang ${admitFmt(run[run.length-1].iso)} — kailangan ng excuse letter `
+          + 'na pirmado ng magulang at ng adviser bago kumuha ng slip. Kung sakit, may medical certificate.'
+      });
+    }
+    run = [];
+  };
+  tl.forEach(d=>{ if(d.absent) run.push(d); else flush(); });
+  flush();
+
+  out.sort((a,b)=> a.iso.localeCompare(b.iso));
+  return out;
+}
+
+function admitStatus(studentId, id){
+  return (admissionLog[studentId] || {})[id] || { status:'pending' };
+}
+function admitSet(studentId, id, patch){
+  if(!admissionLog[studentId]) admissionLog[studentId] = {};
+  admissionLog[studentId][id] = Object.assign({}, admitStatus(studentId, id), patch);
+  saveAdmission();
+}
+
+/* Buod: ilan ang utang, at ano ang ibig sabihin n'un. */
+function admissionSummary(s){
+  const list = admissionObligations(s);
+  const pending = list.filter(o => admitStatus(s.id, o.id).status === 'pending');
+  const secured = list.filter(o => admitStatus(s.id, o.id).status === 'secured');
+  const excused = list.filter(o => admitStatus(s.id, o.id).status === 'excused');
+
+  /* Ang handbook ay hindi naglalagay ng tiyak na parusa sa hindi pagkuha
+     ng slip. Ang ibinibigay dito ay hango sa lohika ng 1.1 (minor offense)
+     at sa escalation na tatlong minor ay isang major. */
+  const advice = [];
+  if(pending.length === 0 && list.length){
+    advice.push({ level:'low', text:'Walang utang na admission slip — kumpleto ang dokumentasyon.' });
+  } else if(pending.length === 1){
+    advice.push({ level:'low', text:'Isang slip pa lang ang kulang. Ipaalala sa bata bago pa madagdagan.' });
+  } else if(pending.length === 2){
+    advice.push({ level:'mid', text:'Dalawang slip na ang kulang. Magpadala ng sulat sa magulang at itala bilang insidente (1.1).' });
+  } else if(pending.length >= 3 && pending.length < 5){
+    advice.push({ level:'high', text:`${pending.length} slip na ang kulang. Ang paulit-ulit na hindi pagkuha ay `
+      + 'bahagi ng 1.1 (minor offense) — tatlong minor ay katumbas ng isang major. Panahon na ng parent conference.' });
+  } else if(pending.length >= 5){
+    advice.push({ level:'critical', text:`${pending.length} slip na ang kulang. Malinaw nang hindi nadodokumento ang `
+      + 'pagliban. Isangguni sa Guidance Office at isama sa Intervention Tracker bilang isang talaan.' });
+  }
+  return { list, pending, secured, excused, advice };
+}
+
+/* =========================================================
+   AKSYONG GINAWA — mula sa Offenses and Consequences
+   ng Student Handbook. Naitatala kada insidente, kaya
+   makikita kung saan na ang bata sa hagdan ng disiplina.
+   ========================================================= */
+const ACTION_TAKEN = [
+  { k:'oral',        label:'Oral Warning',                              cat:'minor', nth:1 },
+  { k:'reprimand',   label:'Written Reprimand',                         cat:'minor', nth:2 },
+  { k:'susp1',       label:'Suspension 1–3 araw (Home Study Program)',   cat:'minor', nth:3 },
+  { k:'susp23',      label:'Suspension 2–3 araw (Home Study Program)',   cat:'major', nth:1 },
+  { k:'susp45',      label:'Suspension 4–5 araw (Home Study Program)',   cat:'major', nth:2 },
+  { k:'iact',        label:'I ACT Program + Community Service 11–15 oras', cat:'major', nth:3 },
+  { k:'transfer',    label:'Ilipat sa ibang paaralan (current SY)',      cat:'grave', nth:2 },
+  { k:'referral',    label:'Referral sa proper authority',               cat:'constitutional', nth:1 },
+  { k:'conference',  label:'Parent conference',                          cat:null, nth:null },
+  { k:'homevisit',   label:'Home visitation',                            cat:null, nth:null },
+  { k:'guidance',    label:'Isinangguni sa Guidance Office',             cat:null, nth:null },
+  { k:'kasunduan',   label:'Nilagdaan ang Kasunduan',                    cat:null, nth:null },
+  { k:'none',        label:'Wala pa — naitala lamang',                   cat:null, nth:null },
+  { k:'other',       label:'Iba pa',                                     cat:null, nth:null }
+];
+function actionLabel(k){
+  const a = ACTION_TAKEN.find(x=>x.k===k);
+  return a ? a.label : '';
+}
+/* Ang mungkahing aksyon ayon sa antas at pang-ilang paglabag. */
+function suggestedAction(cat, nth){
+  const hit = ACTION_TAKEN.find(a => a.cat === cat && a.nth === Math.min(nth, 3));
+  if(hit) return hit.k;
+  if(cat === 'grave') return nth >= 2 ? 'transfer' : 'iact';
+  if(cat === 'constitutional') return 'referral';
+  return 'oral';
+}
+
+/* ---- breakdown kada buwan, hindi naka-total ---- */
+
+/* Absent at late sa iisang buwan lamang. */
+function monthTally(s, month){
+  if(!monthHasStarted(month)) return { absent:0, late:0, days:0 };
+  const t = sf2EnrolledTotals(s, month);
+  return { absent:t.absent, late:t.late, days:sf2EnrolledSchoolDays(s, month) };
+}
+
+/* Aling buwan ang napag-usapan na sa mga naunang insidente. */
+function coveredMonths(studentId){
+  const set = new Set();
+  (anecdotal[studentId] || []).forEach(e=>{
+    (e.months || []).forEach(m => set.add(m));
+  });
+  return set;
+}
+
+/* Mga buwang may laman at hindi pa napag-uusapan. */
+function openMonths(s){
+  const done = coveredMonths(s.id);
+  return MONTHS_ORDER.filter(m=>{
+    if(!monthHasStarted(m) || done.has(m)) return false;
+    const t = monthTally(s, m);
+    return t.absent > 0 || t.late > 0;
+  });
+}
+
+/* Ang mga linyang ilalagay sa form — isang bullet kada buwan. */
+function monthBreakdownLines(s, months){
+  const out = [];
+  months.forEach(m=>{
+    const t = monthTally(s, m);
+    const name = m.charAt(0) + m.slice(1).toLowerCase();
+    if(t.absent) out.push(`${t.absent} NA PAGLIBAN NITONG BUWAN NG ${m}`);
+    if(t.late)   out.push(`${t.late} NA PAGKAKAHULI SA KLASE NITONG BUWAN NG ${m}`);
+  });
+  return out;
+}
+
+/* =========================================================
    PAYO HINGGIL SA PAGPASOK — Student Handbook, Article X
    Tinutukoy kung aling tuntunin ang naaangkop sa kalagayan
    ng bata, at kung anong papel ang nararapat gamitin.
@@ -10173,26 +10403,24 @@ function attendanceAdvisory(s){
 function anecFromAttendance(studentId){
   const s = students.find(x => x.id === studentId);
   if(!s) return;
-  const p = intAbsenceProfile(s);
-  if(p.totalAbsent === 0 && p.totalLate === 0){
-    showToast('Walang naitalang absent o late para sa mag-aaral na ito.', true);
-    return;
+  /* Ang hindi pa napag-uusapang buwan lamang — bagong bilang kada usapan. */
+  const months = openMonths(s);
+  if(!months.length){
+    const any = MONTHS_ORDER.some(m=>{
+      const t = monthTally(s, m); return t.absent > 0 || t.late > 0;
+    });
+    showToast(any
+      ? 'Napag-usapan na ang lahat ng buwang may absent o late. Pumili ng buwan sa loob kung nais mong ulitin.'
+      : 'Walang naitalang absent o late para sa mag-aaral na ito.', true);
+    if(!any) return;
   }
-  const dates = attAbsenceDates(s);
-  const shown = dates.slice(-8).map(d=>
-    `${d.month.charAt(0)}${d.month.slice(1,3).toLowerCase()} ${d.day}`).join(', ');
-
-  const bits = [];
-  if(p.totalAbsent) bits.push(`${p.totalAbsent} araw na pagliban`);
-  if(p.totalLate)   bits.push(`${p.totalLate} beses na pagka-late`);
-  let text = `unexcused tardiness and absences (1.1) — ${bits.join(' at ')}`;
-  if(p.longestStreak >= 2) text += `, pinakamahabang sunod-sunod ay ${p.longestStreak} araw`;
-  if(shown) text += `. Mga huling petsa ng pagliban: ${shown}`;
-  text += '.';
+  const lines = monthBreakdownLines(s, months);
 
   openAnecDialog(studentId, null);
   document.getElementById('anecDlgCategory').value = '1.1';
-  document.getElementById('anecDlgIncident').value = text;
+  document.getElementById('anecMonthsWrap').style.display = 'block';
+  anecRenderMonths(s, months);
+  document.getElementById('anecDlgIncident').value = lines.map(l => '• ' + l).join('\n');
   document.getElementById('anecDlgPromise').value =
     'papasok po ako nang regular at magpapaalam kung may dahilan ng pagliban';
   document.getElementById('anecDlgConsequence').value =
@@ -10256,6 +10484,97 @@ function anecFillStudentSelect(){
   if(prev) sel.value = prev;
 }
 
+/* Paglalarawan ng utang na slip, may checkbox kada isa. */
+const ADMIT_STATE = {
+  pending:  { label:'Hindi pa nakakakuha', c:'var(--danger)', bg:'#fbeeed' },
+  secured:  { label:'Nakakuha na',         c:'var(--ok)',     bg:'#eaf5ee' },
+  excused:  { label:'Hindi na kailangan',  c:'var(--ink-soft)', bg:'#f0eee8' }
+};
+
+function renderAdmission(s){
+  const card = document.getElementById('admitCard');
+  if(!card) return;
+  if(!s){ card.hidden = true; return; }
+
+  const sum = admissionSummary(s);
+  if(!sum.list.length){
+    card.hidden = false;
+    document.getElementById('admitSummary').innerHTML =
+      `<div style="background:#eaf5ee; border:1px solid #c3e0cd; border-radius:var(--radius);
+        padding:11px 13px; font-size:12.5px; color:var(--ok);">
+        Walang utang na admission slip — wala pang umabot sa 3 late o sa 3 sunod-sunod na absent.</div>`;
+    document.getElementById('admitList').innerHTML = '';
+    return;
+  }
+  card.hidden = false;
+
+  const lv = ADV_LEVEL[(sum.advice[0] || {}).level || 'low'];
+  document.getElementById('admitSummary').innerHTML = `
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:10px; margin-bottom:10px;">
+      ${[['Utang', sum.pending.length, 'var(--danger)'],
+         ['Nakakuha na', sum.secured.length, 'var(--ok)'],
+         ['Hindi na kailangan', sum.excused.length, 'var(--ink-soft)'],
+         ['Kabuuan', sum.list.length, 'var(--ink)']].map(([l,v,col])=>`
+        <div style="background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
+          padding:10px; text-align:center;">
+          <div style="font-family:'Lora',serif; font-size:21px; font-weight:600; color:${col};">${v}</div>
+          <div style="font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft);">${l}</div>
+        </div>`).join('')}
+    </div>
+    ${sum.advice.map(a=>{
+      const l = ADV_LEVEL[a.level];
+      return `<div style="background:${l.bg}; border:1px solid ${l.bd}; border-radius:var(--radius);
+        padding:10px 12px; font-size:12.5px; line-height:1.7; color:${l.c};">${escapeHtml(a.text)}</div>`;
+    }).join('')}`;
+
+  document.getElementById('admitList').innerHTML = sum.list.map((o, i)=>{
+    const st = admitStatus(s.id, o.id);
+    const info = ADMIT_STATE[st.status] || ADMIT_STATE.pending;
+    return `<div style="display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line);
+        border-radius:var(--radius); padding:10px 12px; margin-bottom:7px; background:${info.bg};">
+      <input type="checkbox" data-admit="${escapeHtml(o.id)}" ${st.status === 'secured' ? 'checked' : ''}
+        style="width:auto; margin-top:3px;" title="Markahan kapag nakakuha na">
+      <div style="flex:1; min-width:0;">
+        <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;">
+          <strong style="font-size:12.5px;">${i+1}. ${escapeHtml(o.label)}</strong>
+          <span style="font-size:10px; font-weight:700; padding:1px 7px; border-radius:20px;
+            background:#fff; color:${info.c};">${info.label}</span>
+          <span style="font-size:10.5px; color:var(--ink-soft);">Tuntunin ${escapeHtml(o.rule)} &middot; ${escapeHtml(admitFmt(o.iso))}</span>
+        </div>
+        <div style="font-size:11.5px; color:var(--ink-soft); margin-top:3px;">${escapeHtml(o.detail)}</div>
+        ${st.note ? `<div style="font-size:11.5px; margin-top:3px; font-style:italic;">${escapeHtml(st.note)}</div>` : ''}
+      </div>
+      <button class="btn btn-sm" data-admit-excuse="${escapeHtml(o.id)}"
+        title="Halimbawa: may medical certificate, o school-related ang pagliban">
+        ${st.status === 'excused' ? 'Ibalik' : 'Hindi na kailangan'}</button>
+    </div>`;
+  }).join('');
+
+  document.getElementById('admitList').querySelectorAll('[data-admit]').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      admitSet(s.id, cb.dataset.admit, {
+        status: cb.checked ? 'secured' : 'pending',
+        date: cb.checked ? new Date().toISOString().slice(0,10) : ''
+      });
+      renderAdmission(s);
+    });
+  });
+  document.getElementById('admitList').querySelectorAll('[data-admit-excuse]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const id = b.dataset.admitExcuse;
+      const cur = admitStatus(s.id, id);
+      if(cur.status === 'excused'){
+        admitSet(s.id, id, { status:'pending', note:'' });
+      } else {
+        const why = prompt('Bakit hindi na kailangan? (hal.: may medical certificate, school-related activity)');
+        if(why === null) return;
+        admitSet(s.id, id, { status:'excused', note: why.trim() });
+      }
+      renderAdmission(s);
+    });
+  });
+}
+
 function renderAnecdotalView(){
   const src = document.getElementById('letterhead');
   const lh = document.getElementById('anecLetterhead');
@@ -10297,6 +10616,7 @@ function renderAnecdotalView(){
     ctxCard.hidden = true;
   }
 
+  renderAdmission(sid ? students.find(x=>x.id===sid) : null);
   renderAnecList(sid);
   renderFormsClassList();
 
@@ -10357,7 +10677,11 @@ function renderAnecList(filterSid){
         <button class="btn btn-sm" data-anec-edit="${s.id}:${idx}">Baguhin</button>
         <button class="btn btn-sm btn-gold" data-anec-forms="${s.id}:${idx}">&#128451; Mga Form</button>
       </div>
-      ${e.incident ? `<div style="font-size:12.5px; margin-top:6px;">${escapeHtml(e.incident)}</div>` : ''}
+      ${e.action && e.action !== 'none' ? `<span style="font-size:10px; font-weight:700; padding:2px 8px;
+        border-radius:20px; background:#e8eef5; color:var(--navy);">${escapeHtml(actionLabel(e.action))}</span>` : ''}
+      ${(e.months || []).length ? `<div style="font-size:10.5px; color:var(--ink-soft); margin-top:4px;">
+        Saklaw: ${(e.months || []).map(m => m.charAt(0) + m.slice(1).toLowerCase()).join(', ')}</div>` : ''}
+      ${e.incident ? `<div style="font-size:12.5px; margin-top:6px; white-space:pre-line;">${escapeHtml(e.incident)}</div>` : ''}
       ${e.notes ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:4px; font-style:italic;">Tala: ${escapeHtml(e.notes)}</div>` : ''}
       ${(()=>{ const r = offenseConsequence(s.id, idx);
         return `<div style="margin-top:7px; padding:8px 10px; background:var(--paper); border-radius:7px;">
@@ -10414,6 +10738,21 @@ function openAnecDialog(studentId, idx){
   document.getElementById('anecDlgConsequence').value = entry ? (entry.consequence || '') : '';
   document.getElementById('anecDlgNotes').value = entry ? (entry.notes || '') : '';
   document.getElementById('anecDlgGuardian').value = s.guardian || '';
+
+  /* Aksyong ginawa — mungkahi ayon sa antas at pang-ilang paglabag. */
+  const actSel = document.getElementById('anecDlgAction');
+  actSel.innerHTML = ACTION_TAKEN.map(a=>`<option value="${a.k}">${escapeHtml(a.label)}</option>`).join('');
+  if(entry && entry.action) actSel.value = entry.action;
+  else {
+    const o = offenseByCode(catSel.value);
+    const t = offenseTally(studentId, idx === null || idx === undefined ? -1 : idx);
+    actSel.value = suggestedAction(o ? o.cat : 'minor', (t.counts[(o||{}).cat || 'minor'] || 0) + 1);
+  }
+
+  /* Saklaw na buwan — para sa paglabag na may kinalaman sa pagpasok. */
+  const isAtt = catSel.value === '1.1';
+  document.getElementById('anecMonthsWrap').style.display = isAtt ? 'block' : 'none';
+  if(isAtt) anecRenderMonths(s, entry ? (entry.months || []) : openMonths(s));
   document.getElementById('anecDlgDelete').style.display = entry ? 'block' : 'none';
 
   if(!entry) anecApplyCategoryDefaults();
@@ -10429,6 +10768,57 @@ function closeAnecDialog(){
 }
 
 /* Punan ang tatlong kahon ng mungkahing teksto — mababago pa ng guro. */
+/* Mga checkbox ng buwan, at ang pagbuo ng teksto mula sa napili. */
+function anecRenderMonths(s, selected){
+  const host = document.getElementById('anecMonths');
+  const done = coveredMonths(s.id);
+  const avail = MONTHS_ORDER.filter(m=>{
+    if(!monthHasStarted(m)) return false;
+    const t = monthTally(s, m);
+    return t.absent > 0 || t.late > 0 || done.has(m);
+  });
+  if(!avail.length){
+    host.innerHTML = '<span style="font-size:11.5px; color:var(--ink-soft);">Walang buwang may absent o late.</span>';
+    return;
+  }
+  host.innerHTML = avail.map(m=>{
+    const t = monthTally(s, m);
+    const used = done.has(m) && !(selected || []).includes(m);
+    const on = (selected || []).includes(m);
+    const name = m.charAt(0) + m.slice(1,3).toLowerCase();
+    return `<label style="display:inline-flex; align-items:center; gap:5px; font-size:11.5px;
+        padding:4px 9px; border-radius:20px; cursor:pointer;
+        border:1px solid ${on ? 'var(--gold)' : 'var(--line)'};
+        background:${on ? '#fdfaf1' : '#fff'}; ${used ? 'opacity:.55;' : ''}">
+      <input type="checkbox" data-month="${m}" ${on ? 'checked' : ''} style="width:auto; margin:0;">
+      <span>${name}</span>
+      <span style="color:var(--ink-soft);">${t.absent}A / ${t.late}L</span>
+      ${used ? '<span style="color:var(--ok);">&#10003;</span>' : ''}
+    </label>`;
+  }).join('');
+
+  host.querySelectorAll('[data-month]').forEach(cb=>{
+    cb.addEventListener('change', ()=> anecSyncFromMonths(s));
+  });
+}
+
+function anecSelectedMonths(){
+  return Array.from(document.querySelectorAll('#anecMonths [data-month]:checked'))
+    .map(cb => cb.dataset.month);
+}
+
+/* Buuin ang paglalarawan mula sa napiling buwan — bullet kada buwan. */
+function anecSyncFromMonths(s){
+  const months = anecSelectedMonths();
+  const lines = monthBreakdownLines(s, months);
+  const box = document.getElementById('anecDlgIncident');
+  if(lines.length){
+    box.value = lines.map(l => '• ' + l).join('\n');
+  }
+  anecRenderMonths(s, months);
+  anecRenderSuggest(s);
+}
+
 function anecApplyCategoryDefaults(){
   const o = offenseByCode(document.getElementById('anecDlgCategory').value);
   if(!o) return;
@@ -10472,16 +10862,48 @@ function anecRenderSuggest(s){
 }
 
 /* ---- Kasunduan docx ---- */
+/* Hanapin ang bawat talata nang may wastong pagbilang ng lalim.
+   Dating depekto: ginamit ko ang /<w:p[ >][\s\S]*?<\/w:p>/ na humihinto
+   sa unang pagsara — mali ito sa mga form na may text box, dahil may
+   talata sa loob ng talata. Naputol tuloy ang panlabas na balangkas at
+   nasira ang dokumento. Dito, ang mga talatang WALANG nakapaloob na
+   ibang talata ang binibilang — 'yun ang may nakikitang teksto. */
+function docxLeafParagraphs(xml){
+  const out = [];
+  const stack = [];
+  const re = /<(\/?)w:p(\s[^>]*?)?(\/?)>/g;
+  let m;
+  while((m = re.exec(xml)) !== null){
+    const isClose = m[1] === '/';
+    const selfClose = m[3] === '/' || (m[2] || '').trim().endsWith('/');
+    if(selfClose) continue;                    // <w:p/> — walang laman
+    if(!isClose){ stack.push({ start:m.index, openEnd:re.lastIndex, hasChild:false }); }
+    else {
+      const open = stack.pop();
+      if(!open) continue;
+      if(stack.length) stack[stack.length-1].hasChild = true;
+      if(!open.hasChild){
+        out.push({ start:open.start, openEnd:open.openEnd, end:re.lastIndex });
+      }
+    }
+  }
+  out.sort((a,b)=> a.start - b.start);
+  return out;
+}
+
 function anecDocxSetParagraph(xml, index, text){
-  const paras = xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g) || [];
+  const paras = docxLeafParagraphs(xml);
   if(index >= paras.length) return xml;
   const p = paras[index];
-  const pPr = (p.match(/<w:pPr>[\s\S]*?<\/w:pPr>/) || [''])[0];
-  const open = (p.match(/^<w:p[^>]*>/) || ['<w:p>'])[0];
+  const inner = xml.slice(p.openEnd, p.end - '</w:p>'.length);
+  const openTag = xml.slice(p.start, p.openEnd);
+  const pPr = (inner.match(/<w:pPr>[\s\S]*?<\/w:pPr>/) || [''])[0];
   const body = text
     ? `<w:r><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>`
     : '';
-  return xml.replace(p, `${open}${pPr}${body}</w:p>`);
+  /* Pinapalitan ayon sa eksaktong posisyon — hindi sa paghahanap ng
+     teksto, dahil maaaring magkapareho ang dalawang blangkong talata. */
+  return xml.slice(0, p.start) + openTag + pPr + body + '</w:p>' + xml.slice(p.end);
 }
 
 
@@ -10505,7 +10927,16 @@ function anecDocxSetParagraph(xml, index, text){
   document.getElementById('anecDlgCategory').addEventListener('change', ()=>{
     anecApplyCategoryDefaults();
     const st = students.find(x => x.id === anecDlgSid);
-    if(st) anecRenderSuggest(st);
+    if(!st) return;
+    const isAtt = document.getElementById('anecDlgCategory').value === '1.1';
+    document.getElementById('anecMonthsWrap').style.display = isAtt ? 'block' : 'none';
+    if(isAtt) anecRenderMonths(st, openMonths(st));
+    anecRenderSuggest(st);
+  });
+  document.getElementById('anecDlgAction').addEventListener('change', ()=>{
+    const a = ACTION_TAKEN.find(x => x.k === document.getElementById('anecDlgAction').value);
+    document.getElementById('anecActionHint').textContent = a && a.cat
+      ? `Ayon sa handbook, ito ang nakatakda sa ika-${a.nth} na ${a.cat} offense.` : '';
   });
   document.getElementById('anecDlgCancel').addEventListener('click', closeAnecDialog);
   document.getElementById('anecOverlay').addEventListener('click', (ev)=>{
@@ -10520,6 +10951,8 @@ function anecDocxSetParagraph(xml, index, text){
     const entry = {
       date:        document.getElementById('anecDlgDate').value,
       category:    document.getElementById('anecDlgCategory').value,
+      action:      document.getElementById('anecDlgAction').value,
+      months:      anecSelectedMonths(),
       incident:    document.getElementById('anecDlgIncident').value.trim(),
       promise:     document.getElementById('anecDlgPromise').value.trim(),
       consequence: document.getElementById('anecDlgConsequence').value.trim(),
