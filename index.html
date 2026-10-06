@@ -1758,8 +1758,16 @@
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
           Ayon sa SF2: <em>"The adviser will provide necessary interventions including but not
           limited to home visitation to learner/s who were absent for 5 consecutive days and/or
-          those at risk of dropping out."</em> Awtomatikong tinutukoy dito kung sino sila, at
-          naitatala ang bawat hakbang mong ginawa.
+          those at risk of dropping out."</em> Awtomatikong tinutukoy dito kung sino sila.
+        </p>
+        <p style="font-size:12px; color:var(--ink-soft); line-height:1.7; margin-top:8px;
+          border-left:3px solid var(--gold-soft); padding-left:10px;">
+          <strong>Watchlist ito, hindi pangalawang talaan.</strong> Ang bilang ng Aksyon at ang
+          Katayuan ay kinukuha sa dalawang pinagmulan: ang mga hakbang na itinala mo rito, at ang
+          mga insidenteng naitala sa <strong>Anecdotal Record</strong>. Kaya kung may naitala ka
+          nang Oral Warning doon, lalabas din ito dito — hindi mo na kailangang ulitin.
+          Gamitin ang <strong>&#43; Itala</strong> para sa hakbang na walang kaukulang paglabag,
+          tulad ng home visitation o pakikipag-usap sa magulang.
         </p>
         <div class="toolbar" style="margin-top:12px;">
           <div class="field" style="min-width:180px;">
@@ -11327,6 +11335,10 @@ function intFlagged(){
     const p = intAbsenceProfile(s);
     const reasons = [];
     if(p.fiveInMonth) reasons.push('5 sunod-sunod na absent');
+    if(typeof admissionSummary === 'function'){
+      const pend = admissionSummary(s).pending.length;
+      if(pend >= 2) reasons.push(`${pend} utang na admission slip`);
+    }
     if(p.totalAbsent >= min) reasons.push(`${p.totalAbsent} absent sa taon`);
     const left = !isActiveStatus(s) && statusInfo(s.status).dir === 'out';
     const hasLog = (interventions[s.id] || []).length > 0;
@@ -11341,6 +11353,46 @@ function intFlagged(){
   // Pinakamalubha muna
   out.sort((a,b) => (b.p.longestStreak - a.p.longestStreak) || (b.p.totalAbsent - a.p.totalAbsent));
   return out;
+}
+
+/* Pinagsamang talaan: ang mga hakbang mula sa Intervention Tracker at
+   ang mga insidenteng naitala sa Anecdotal Record. Dalawang pintuan,
+   iisang kasaysayan — kung hindi pagsasamahin, mukhang walang ginawa
+   kahit meron naman. */
+function intCombinedEntries(studentId){
+  const out = [];
+  (interventions[studentId] || []).forEach((e, idx)=>{
+    out.push({
+      src:'intervention', idx, date:e.date || '',
+      title: intTypeLabel(e.type),
+      detail: e.notes || '',
+      withWhom: e.with || '',
+      status: e.status || 'ongoing'
+    });
+  });
+  (anecdotal[studentId] || []).forEach((e, idx)=>{
+    const o = offenseByCode(e.category);
+    const act = e.action && e.action !== 'none' ? actionLabel(e.action) : '';
+    out.push({
+      src:'incident', idx, date:e.date || '',
+      title: act || 'Naitalang insidente',
+      detail: (o ? `${o.code} ${o.text}` : (e.incident || '')),
+      withWhom: '',
+      /* Ang insidenteng may aksyon ay ituring na hakbang na ginawa. */
+      status: act ? (['transfer','referral','iact','guidance'].includes(e.action)
+        ? 'escalated' : 'ongoing') : 'ongoing',
+      offense: o ? o.cat : null,
+      months: e.months || []
+    });
+  });
+  out.sort((a,b)=> (b.date || '').localeCompare(a.date || ''));
+  return out;
+}
+
+/* Ang huling katayuan, saanman nanggaling. */
+function intLatestCombined(studentId){
+  const list = intCombinedEntries(studentId);
+  return list.length ? list[0].status : null;
 }
 
 function intLatestStatus(studentId){
@@ -11389,8 +11441,8 @@ function renderInterventionView(){
   });
 
   rows.forEach((r, i)=>{
-    const list = interventions[r.s.id] || [];
-    const st = intLatestStatus(r.s.id);
+    const list = intCombinedEntries(r.s.id);
+    const st = intLatestCombined(r.s.id);
     const info = st ? INT_STATUS[st] : null;
     const badge = info
       ? `<span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
@@ -11424,7 +11476,7 @@ function renderIntHistory(rows){
   const host = document.getElementById('intHistory');
   const all = [];
   (rows || intFlagged()).forEach(r=>{
-    (interventions[r.s.id] || []).forEach((e, idx)=> all.push({ s: r.s, e, idx }));
+    intCombinedEntries(r.s.id).forEach(e=> all.push({ s: r.s, e, idx: e.idx }));
   });
   if(all.length === 0){
     host.innerHTML = '<p style="font-size:12.5px; color:var(--ink-soft); margin:0;">'
@@ -11437,18 +11489,38 @@ function renderIntHistory(rows){
     const name = `${s.lastName || ''}, ${s.firstName || ''}`.replace(/^,\s*/,'').trim();
     const when = e.date ? new Date(e.date + 'T00:00:00').toLocaleDateString('en-US',
       { month:'short', day:'numeric', year:'numeric' }) : '';
+    const fromIncident = e.src === 'incident';
     return `<div style="border-left:3px solid ${info.c}; padding:8px 0 8px 12px; margin-bottom:10px;">
       <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;">
         <strong style="font-size:13px;">${escapeHtml(name)}</strong>
         <span style="font-size:11.5px; color:var(--ink-soft);">${escapeHtml(when)}</span>
-        <span style="font-size:11px; font-weight:600; color:${info.c};">${escapeHtml(intTypeLabel(e.type))}</span>
+        <span style="font-size:11px; font-weight:600; color:${info.c};">${escapeHtml(e.title)}</span>
+        <span style="font-size:9.5px; font-weight:700; padding:1px 7px; border-radius:20px;
+          background:${fromIncident ? '#f6efdc' : '#e8eef5'}; color:${fromIncident ? '#7a5c12' : 'var(--navy)'};">
+          ${fromIncident ? 'Anecdotal' : 'Intervention'}</span>
         <div style="flex:1;"></div>
-        <button class="btn btn-sm" data-int-edit="${s.id}:${idx}">Baguhin</button>
+        ${fromIncident
+          ? `<button class="btn btn-sm" data-int-goanec="${s.id}:${idx}">Buksan</button>`
+          : `<button class="btn btn-sm" data-int-edit="${s.id}:${idx}">Baguhin</button>`}
       </div>
-      ${e.with ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:2px;">Kasama: ${escapeHtml(e.with)}</div>` : ''}
-      ${e.notes ? `<div style="font-size:12.5px; margin-top:4px;">${escapeHtml(e.notes)}</div>` : ''}
+      ${e.withWhom ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:2px;">Kasama: ${escapeHtml(e.withWhom)}</div>` : ''}
+      ${e.detail ? `<div style="font-size:12.5px; margin-top:4px;">${escapeHtml(e.detail)}</div>` : ''}
+      ${(e.months || []).length ? `<div style="font-size:11px; color:var(--ink-soft); margin-top:2px;">
+        Saklaw: ${e.months.map(m=>m.charAt(0)+m.slice(1).toLowerCase()).join(', ')}</div>` : ''}
     </div>`;
   }).join('');
+
+  host.querySelectorAll('[data-int-goanec]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const [sid, idx] = b.dataset.intGoanec.split(':');
+      enterView('anecdotal');
+      setTimeout(()=>{
+        document.getElementById('anecStudent').value = sid;
+        renderAnecdotalView();
+        openAnecDialog(sid, parseInt(idx));
+      }, 60);
+    });
+  });
   host.querySelectorAll('[data-int-edit]').forEach(b=>{
     b.addEventListener('click', ()=>{
       const [sid, idx] = b.dataset.intEdit.split(':');
