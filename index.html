@@ -1691,7 +1691,8 @@
             <label>Mag-record para kay</label>
             <select id="anecStudent"></select>
           </div>
-          <button class="btn btn-gold" id="btnAnecAdd">&#43; Bagong insidente</button>
+          <button class="btn btn-gold" id="btnAnecFromAtt">&#128197; Gumawa mula sa pagpasok</button>
+          <button class="btn" id="btnAnecAdd">&#43; Ibang insidente</button>
           <div class="spacer"></div>
           <span id="anecCount" style="font-size:11.5px; color:var(--ink-soft);"></span>
         </div>
@@ -10047,6 +10048,179 @@ function offenseConsequence(studentId, idx){
 }
 
 
+/* =========================================================
+   PAYO HINGGIL SA PAGPASOK — Student Handbook, Article X
+   Tinutukoy kung aling tuntunin ang naaangkop sa kalagayan
+   ng bata, at kung anong papel ang nararapat gamitin.
+   ========================================================= */
+
+/* Mga petsang lumiban, para mailagay sa paglalarawan ng insidente. */
+function attAbsenceDates(s){
+  const out = [];
+  MONTHS_ORDER.forEach(month=>{
+    if(!monthHasStarted(month)) return;
+    const md = getMonthData(month);
+    const conv = lateConvertedDays(s.id, month);
+    weekdaysInMonth(month)
+      .filter(d => !md.holidays.includes(d.day))
+      .sort((a,b)=> a.day - b.day)
+      .forEach(d=>{
+        if(!sf2EnrolledOnDay(s, month, d.day)) return;
+        if(sf2DayAbsent(s.id, month, d.day, conv)){
+          out.push({ month, day:d.day,
+            iso: `${yearForMonth(month)}-${String(MONTH_JS_INDEX[month]+1).padStart(2,'0')}-${String(d.day).padStart(2,'0')}` });
+        }
+      });
+  });
+  return out;
+}
+
+/* Ang payo hinggil sa pagpasok, kasama ang mga form na nararapat. */
+const ADV_LEVEL = {
+  low:      { c:'#3a7d54', bg:'#eaf5ee', bd:'#c3e0cd', label:'Paalala' },
+  mid:      { c:'#7a5c12', bg:'#f6efdc', bd:'#e3d3a4', label:'Bantayan' },
+  high:     { c:'#b8433a', bg:'#fbeeed', bd:'#e2c6c2', label:'Kailangan ng aksyon' },
+  critical: { c:'#7d241e', bg:'#f5dcda', bd:'#dcb8b4', label:'Agarang aksyon' }
+};
+
+function renderAttAdvisory(s){
+  const adv = attendanceAdvisory(s);
+  if(!adv.items.length){
+    return `<div style="margin-top:12px; background:#eaf5ee; border:1px solid #c3e0cd;
+        border-radius:var(--radius); padding:11px 13px; font-size:12.5px; color:var(--ok);">
+      Maayos ang pagpasok — walang tuntunin sa Article X na naaangkop sa ngayon.</div>`;
+  }
+  return `<div style="margin-top:12px;">
+    <div style="font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--navy);
+      font-weight:700; margin-bottom:6px;">Tuntunin sa pagpasok na naaangkop</div>
+    ${adv.items.map(it=>{
+      const lv = ADV_LEVEL[it.level];
+      const formBtns = (it.forms || []).map(k=>{
+        const d = FORM_DEFS.find(x => x.key === k);
+        if(!d) return '';
+        return `<button class="btn btn-sm" data-advform="${k}" style="margin:4px 4px 0 0;">${escapeHtml(d.label)}</button>`;
+      }).join('');
+      return `<div style="background:${lv.bg}; border:1px solid ${lv.bd}; border-radius:var(--radius);
+          padding:10px 12px; margin-bottom:7px;">
+        <div style="display:flex; gap:8px; align-items:baseline;">
+          <span style="font-size:9.5px; font-weight:700; padding:2px 7px; border-radius:20px;
+            background:#fff; color:${lv.c};">${lv.label}</span>
+          <span style="font-size:10.5px; color:${lv.c}; font-weight:700;">${escapeHtml(it.rule)}</span>
+        </div>
+        <div style="font-size:12.5px; line-height:1.7; margin-top:5px;">${escapeHtml(it.text)}</div>
+        ${formBtns ? `<div style="margin-top:4px;">${formBtns}</div>` : ''}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+/* Ang mga tuntunin sa Article X na naaangkop sa kasalukuyang datos. */
+function attendanceAdvisory(s){
+  const p = intAbsenceProfile(s);
+  const out = [];
+
+  if(p.totalLate >= 3){
+    out.push({
+      rule:'1.3',
+      level: p.totalLate >= 6 ? 'high' : 'mid',
+      text:`May ${p.totalLate} late. Ayon sa 1.3, tatlong unexcused tardies ay katumbas ng isang araw `
+        + `na unexcused absence — kaya ${Math.floor(p.totalLate/3)} araw na ang naidagdag sa absent niya. `
+        + `Ang una at ikalawang late ay sagot ng adviser; mula sa ikatlo, kailangan na ng admission slip `
+        + `mula sa guidance office.`,
+      forms:['excuseslip']
+    });
+  }
+  if(p.totalAbsent >= 1 && p.totalAbsent < 3){
+    out.push({ rule:'1.4', level:'low',
+      text:`May ${p.totalAbsent} absent. Ayon sa 1.4, kailangan ng excuse letter na pirmado ng magulang `
+        + `o tagapangalaga, ibibigay sa class adviser.`,
+      forms:[] });
+  }
+  if(p.totalAbsent >= 3){
+    out.push({ rule:'1.5', level:'mid',
+      text:`May ${p.totalAbsent} absent. Ayon sa 1.5, kailangan ng excuse letter na pirmado ng magulang `
+        + `at ng class adviser bago kumuha ng admission slip sa guidance counselor. Kung sakit ang dahilan, `
+        + `kailangan ng valid medical certificate.`,
+      forms:['excuseslip','conference'] });
+  }
+  if(p.longestStreak >= 5){
+    out.push({ rule:'SF2', level:'high',
+      text:`May ${p.longestStreak} sunod-sunod na absent. Ayon sa panuntunan ng SF2, kailangan na ng `
+        + `intervention — kabilang ang home visitation. Itala ito sa Intervention Tracker.`,
+      forms:['conference'] });
+  }
+  if(p.longestStreak > 10){
+    out.push({ rule:'2.1', level:'critical',
+      text:`Lumampas na sa 10 sunod-sunod na absent (${p.longestStreak}). Ayon sa 2.1, maaari na siyang `
+        + `ituring na No Longer Participating in Learning Activities (NLPA) at maalis sa roll — `
+        + `ngunit kailangan ng wastong notification AT dokumentasyon ayon sa proseso ng paaralan.`,
+      forms:['conference','reprimand'] });
+  }
+
+  /* Ilang beses na ba itong naitala bilang paglabag na 1.1 */
+  const logged = (anecdotal[s.id] || []).filter(e => e.category === '1.1').length;
+  if(p.totalAbsent >= 3 || p.totalLate >= 3){
+    const steps = CONSEQUENCE.minor;
+    const nth = Math.min(logged + 1, steps.length);
+    out.push({ rule:'XI-1.1', level: logged >= 2 ? 'high' : 'mid',
+      text:`Ang pagliban at pagka-late ay minor offense (1.1). ${logged ? `May ${logged} naitala na.` : 'Wala pang naitala.'} `
+        + `Kung itatala mo ngayon, ito ang magiging ika-${nth}: ${steps[nth-1]}`,
+      forms: nth >= 2 ? ['reprimand','kasunduan'] : ['anecdotal'] });
+  }
+  return { profile:p, items:out };
+}
+
+/* Gumawa ng insidenteng hango mismo sa talaan ng pagpasok. */
+function anecFromAttendance(studentId){
+  const s = students.find(x => x.id === studentId);
+  if(!s) return;
+  const p = intAbsenceProfile(s);
+  if(p.totalAbsent === 0 && p.totalLate === 0){
+    showToast('Walang naitalang absent o late para sa mag-aaral na ito.', true);
+    return;
+  }
+  const dates = attAbsenceDates(s);
+  const shown = dates.slice(-8).map(d=>
+    `${d.month.charAt(0)}${d.month.slice(1,3).toLowerCase()} ${d.day}`).join(', ');
+
+  const bits = [];
+  if(p.totalAbsent) bits.push(`${p.totalAbsent} araw na pagliban`);
+  if(p.totalLate)   bits.push(`${p.totalLate} beses na pagka-late`);
+  let text = `unexcused tardiness and absences (1.1) — ${bits.join(' at ')}`;
+  if(p.longestStreak >= 2) text += `, pinakamahabang sunod-sunod ay ${p.longestStreak} araw`;
+  if(shown) text += `. Mga huling petsa ng pagliban: ${shown}`;
+  text += '.';
+
+  openAnecDialog(studentId, null);
+  document.getElementById('anecDlgCategory').value = '1.1';
+  document.getElementById('anecDlgIncident').value = text;
+  document.getElementById('anecDlgPromise').value =
+    'papasok po ako nang regular at magpapaalam kung may dahilan ng pagliban';
+  document.getElementById('anecDlgConsequence').value =
+    'ipatatawag po ang aking magulang at isasangguni sa School Discipline Committee';
+  anecRenderSuggest(s);
+}
+
+/* ---- kalagayan ng bata, mula sa datos na nasa sistema ---- */
+function anecProfile(s){
+  const att = (typeof intAbsenceProfile === 'function')
+    ? intAbsenceProfile(s) : { totalAbsent:0, totalLate:0, longestStreak:0 };
+  let gwa = null, failing = [];
+  try{
+    const rows = sf9CollectSubjectRows(s.id, gctx.gradeLevel);
+    const finals = [];
+    Object.keys(rows).forEach(name=>{
+      const f = sf9SubjectFinal(rows[name]);
+      if(f !== null && f !== undefined){
+        finals.push(f);
+        if(f < 75) failing.push(name);
+      }
+    });
+    if(finals.length) gwa = Math.round(finals.reduce((a,b)=>a+b,0)/finals.length);
+  }catch(err){ /* wala pang grades — ayos lang */ }
+  const incidents = (anecdotal[s.id] || []).length;
+  return { att, gwa, failing, incidents };
+}
+
 /* Mungkahi batay sa datos — hindi awtomatikong isinusulat sa form.
    Ang guro pa rin ang magpapasya; ito ay pantulong lamang. */
 function anecRecommendation(s){
@@ -10112,8 +10286,9 @@ function renderAnecdotalView(){
             <div style="font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft);">${l}</div>
           </div>`).join('')}
       </div>
+      ${renderAttAdvisory(s)}
       <div style="margin-top:12px; background:#fdfaf1; border:1px solid var(--gold-soft); border-radius:var(--radius); padding:12px 14px;">
-        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--navy); font-weight:700; margin-bottom:5px;">Mungkahi batay sa datos</div>
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--navy); font-weight:700; margin-bottom:5px;">Iba pang mungkahi</div>
         <ul style="margin:0; padding-left:18px; font-size:12.5px; line-height:1.7;">
           ${anecRecommendation(s).map(t=>`<li>${escapeHtml(t)}</li>`).join('')}
         </ul>
@@ -10124,6 +10299,30 @@ function renderAnecdotalView(){
 
   renderAnecList(sid);
   renderFormsClassList();
+
+  /* Ang mga form sa payo: kung kailangan ng insidente, piliin ang pinakahuli;
+     kung wala pang insidente, gawin muna mula sa talaan ng pagpasok. */
+  document.querySelectorAll('[data-advform]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const def = FORM_DEFS.find(d => d.key === b.dataset.advform);
+      if(!def || !sid) return;
+      const list = anecdotal[sid] || [];
+      if(def.scope === 'incident' && !list.length){
+        showToast('Gumawa muna ng insidente — pindutin ang "Gumawa mula sa pagpasok".', true);
+        return;
+      }
+      if(def.scope === 'incident'){
+        /* Pinakahuling insidente ang ginagamit. */
+        let newest = 0;
+        list.forEach((e, i)=>{ if((e.date || '') >= (list[newest].date || '')) newest = i; });
+        formsPick = { sid, idx: newest };
+      } else {
+        formsPick = { sid, idx: null };
+      }
+      if(def.fields.length) openFormsDialog(def);
+      else runFormDownload(def, {});
+    });
+  });
 }
 
 function renderAnecList(filterSid){
@@ -10295,6 +10494,13 @@ function anecDocxSetParagraph(xml, index, text){
     const sid = sel.value;
     if(!sid){ showToast('Pumili muna ng mag-aaral sa itaas.', true); return; }
     openAnecDialog(sid, null);
+  });
+
+  /* Isang pindot: hango mismo sa talaan ng pagpasok. */
+  document.getElementById('btnAnecFromAtt').addEventListener('click', ()=>{
+    const sid = sel.value;
+    if(!sid){ showToast('Pumili muna ng mag-aaral sa itaas.', true); return; }
+    anecFromAttendance(sid);
   });
   document.getElementById('anecDlgCategory').addEventListener('change', ()=>{
     anecApplyCategoryDefaults();
