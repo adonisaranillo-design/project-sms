@@ -727,6 +727,36 @@
   </div>
 </div>
 
+
+<!-- ================= EXCUSE PROOF ================= -->
+<div id="excuseOverlay" hidden style="position:fixed; inset:0; z-index:120; background:rgba(20,41,63,.55); display:none; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:440px; padding:24px;">
+    <div style="font-family:'Lora',serif; font-weight:600; font-size:16px; color:var(--navy-deep);">Patunay ng pagiging excused</div>
+    <div id="excuseDlgSub" style="font-size:12.5px; color:var(--ink-soft); margin-bottom:16px;"></div>
+
+    <div class="field">
+      <label>Anong patunay ang naibigay</label>
+      <select id="excuseDlgProof"></select>
+      <div id="excuseDlgHint" style="font-size:11px; margin-top:4px; line-height:1.6;"></div>
+    </div>
+
+    <div class="field">
+      <label>Dahilan ng pagliban</label>
+      <input type="text" id="excuseDlgReason" placeholder="Hal.: lagnat, pagpunta sa ospital, binaha ang daan">
+    </div>
+
+    <div class="field">
+      <label><input type="checkbox" id="excuseDlgAll" style="width:auto; margin-right:6px;">
+        Ilapat sa buong hanay ng excused na araw na ito</label>
+    </div>
+
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn" id="excuseDlgCancel">Kanselahin</button>
+      <button class="btn btn-primary" id="excuseDlgSave">I-save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ================= ANECDOTAL ENTRY ================= -->
 <div id="anecOverlay" hidden style="position:fixed; inset:0; z-index:120; background:rgba(20,41,63,.55); display:none; align-items:center; justify-content:center; padding:20px;">
   <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:620px; max-height:92vh; overflow-y:auto; padding:24px;">
@@ -1719,12 +1749,20 @@
       </div>
 
       <div class="card" id="admitCard" hidden>
-        <h2><span class="num">&#127915;</span> Admission Slip</h2>
+        <h2><span class="num">&#127915;</span> Admission Slip at Excuse Letter</h2>
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
           Ayon sa <strong>1.3</strong>, kada ikatlong unexcused tardy ay may isang admission slip mula sa
-          guidance office — ang una at ikalawa ay sagot ng adviser. Ayon naman sa <strong>1.5</strong>,
-          kada tatlo o higit pang sunod-sunod na absent ay may isa ring slip, pagkatapos ng excuse letter.
-          Awtomatikong tinutukoy dito kung ilan ang dapat niyang kunin.
+          guidance office — ang una at ikalawa ay sagot ng adviser. Ayon sa <strong>1.5</strong>, kada tatlo
+          o higit pang sunod-sunod na absent ay may isa ring slip, pagkatapos ng excuse letter na pirmado
+          ng magulang at ng adviser. Ayon naman sa <strong>1.4</strong>, kahit isang araw lang na pagliban
+          ay kailangan ng excuse letter.
+        </p>
+        <p style="font-size:11.5px; color:var(--ink-soft); line-height:1.7; margin-top:7px;
+          border-left:3px solid var(--gold-soft); padding-left:10px;">
+          <strong>Tungkol sa Modular (M):</strong> hindi ito binabanggit ng handbook — gawi ito ng paaralan.
+          Itinuturing dito na excused, kaya hindi ito nagiging absent at walang kaukulang admission slip.
+          Pero kailangan pa rin ng <strong>excuse letter</strong> ayon sa 1.4. Kapag umabot sa tatlong araw,
+          may paalala na baka hingan din ng slip ayon sa 1.5.
         </p>
         <div id="admitSummary" style="margin-top:12px;"></div>
         <div id="admitList" style="margin-top:12px;"></div>
@@ -2163,6 +2201,10 @@ function applyFullState(data){
   if(data.gctx) gctx = data.gctx;
   attendance = data.attendance || {};
   attMonth = data.attMonth || attMonth;
+  /* Mahalaga ito: ang kopyang galing sa cloud ay maaaring may lumang "M"
+     pa. Kung dito hindi ilalapat ang paglipat, mananatiling M ang laman
+     at hindi ito makikita sa grid. */
+  if(typeof migrateModularToExcused === 'function') migrateModularToExcused();
   archivesData = data.archives || {};
   commentsData = data.comments || {};
   saveComments();
@@ -4539,7 +4581,50 @@ function toggleHoliday(day){
 }
 /* Click cycles a day's mark: Present -> Absent -> Late -> Modular/Distance -> Present.
    Every 3 "Late" marks in a month auto-convert into 1 extra Absent (school policy). */
-const ATT_MARK_CYCLE = [undefined, 'A', 'L', 'M'];
+const ATT_MARK_CYCLE = [undefined, 'A', 'L', 'E'];
+/* Dating "M" (Modular) ay naging "E" (Excused) — mas tugma sa salita ng
+   handbook, na ang hati ay excused at unexcused. Isinasalin ang mga
+   lumang talaan pagbukas, isang beses lamang. */
+function migrateModularToExcused(){
+  let changed = 0;
+  Object.keys(attendance || {}).forEach(month=>{
+    const md = attendance[month];
+    if(!md || !md.marks) return;
+    Object.keys(md.marks).forEach(sid=>{
+      Object.keys(md.marks[sid]).forEach(day=>{
+        if(md.marks[sid][day] === 'M'){ md.marks[sid][day] = 'E'; changed++; }
+      });
+    });
+  });
+  if(changed) saveAttendance();
+  return changed;
+}
+
+/* Patunay ng pagiging excused. Ang 1.4 at 1.5 ay humihingi ng SULAT na
+   pirmado — kaya ang chat o sabi-sabi ay hindi pa kumpletong dokumento. */
+const EXCUSE_PROOF = [
+  { k:'letter',  label:"Sulat ng magulang (pirmado)", valid:true,  c:'var(--ok)',     bg:'#eaf5ee' },
+  { k:'medical', label:'Medical certificate',          valid:true,  c:'var(--ok)',     bg:'#eaf5ee' },
+  { k:'school',  label:'School-related (1.7)',         valid:true,  c:'var(--male)',   bg:'#e9f1f7' },
+  { k:'chat',    label:'Chat o text ng magulang',      valid:false, c:'#a3690a',       bg:'#f6efdc' },
+  { k:'verbal',  label:'Sinabi lang nang pasalita',    valid:false, c:'#a3690a',       bg:'#f6efdc' },
+  { k:'none',    label:'Wala pang patunay',            valid:false, c:'var(--danger)', bg:'#fbeeed' }
+];
+function excuseProof(k){ return EXCUSE_PROOF.find(x=>x.k===k) || EXCUSE_PROOF[EXCUSE_PROOF.length-1]; }
+
+/* Impormasyon kada araw na excused: uri ng patunay at dahilan. */
+function excuseInfo(month, studentId, day){
+  const md = getMonthData(month);
+  return (md.excuses && md.excuses[studentId] && md.excuses[studentId][day]) || { proof:'none', reason:'' };
+}
+function setExcuseInfo(month, studentId, day, patch){
+  const md = getMonthData(month);
+  if(!md.excuses) md.excuses = {};
+  if(!md.excuses[studentId]) md.excuses[studentId] = {};
+  md.excuses[studentId][day] = Object.assign({}, excuseInfo(month, studentId, day), patch);
+  saveAttendance(); flashSaved();
+}
+
 function toggleAttendanceMark(studentId, day){
   const data = getMonthData(attMonth);
   if(!data.marks[studentId]) data.marks[studentId] = {};
@@ -4556,17 +4641,17 @@ function studentMonthTotals(studentId, month){
   const data = getMonthData(month);
   const days = weekdaysInMonth(month).filter(d => !data.holidays.includes(d.day));
   const totalDays = days.length;
-  let rawAbsent = 0, late = 0, modular = 0;
+  let rawAbsent = 0, late = 0, excused = 0;
   days.forEach(d=>{
     const mark = data.marks[studentId] && data.marks[studentId][d.day];
     if(mark === 'A') rawAbsent++;
     else if(mark === 'L') late++;
-    else if(mark === 'M') modular++;
+    else if(mark === 'E' || mark === 'M') excused++;
   });
   const lateAsAbsent = Math.floor(late / 3);
   const absent = rawAbsent + lateAsAbsent;
   const present = totalDays - absent;
-  return { totalDays, absent, rawAbsent, late, lateAsAbsent, modular, present };
+  return { totalDays, absent, rawAbsent, late, lateAsAbsent, excused, present };
 }
 
 /* Every 3rd late in a month converts to one absence. This returns the exact
@@ -4604,7 +4689,11 @@ function sf2DayAbsent(studentId, month, day, convertedSet){
 const ATT_MARK_STYLE = {
   'A': { ch:'A', style:'background:#fbeeed; color:var(--danger); font-weight:700;' },
   'L': { ch:'L', style:'background:#fff4de; color:#a3690a; font-weight:700;' },
-  'M': { ch:'M', style:'background:#e8f0fb; color:var(--male); font-weight:700;' },
+  'E': { ch:'E', style:'background:#e8f0fb; color:var(--male); font-weight:700;' },
+  /* Panangga: kung may natirang lumang "M" na hindi pa nailipat, ipakita
+     pa rin ito bilang E. Kung wala ito, blangko ang lalabas at mukhang
+     nawala ang marka — gayong nandoon lang. */
+  'M': { ch:'E', style:'background:#e8f0fb; color:var(--male); font-weight:700;' },
 };
 
 function renderAttendanceView(){
@@ -4695,12 +4784,18 @@ function renderAttendanceView(){
           : (info ? info.style : 'color:var(--ok);'));
         // the 3rd late becomes an absence — flag it so the teacher can see
         // which day turns into an "x" on the SF2
-        const ch = isHoliday ? '—' : (notEnrolled ? '·' : (info ? (isConverted ? info.ch + '*' : info.ch) : 'P'));
+        /* Ang E na walang patunay ay may tandang pananong — paalala na
+           kulang pa ang dokumento, pero hindi humahadlang sa pag-encode. */
+        const needsProof = mark === 'E' && excuseInfo(attMonth, s.id, slot.day).proof === 'none';
+        const ch = isHoliday ? '—' : (notEnrolled ? '·'
+          : (info ? (isConverted ? info.ch + '*' : (needsProof ? info.ch + '?' : info.ch)) : 'P'));
         const tip = notEnrolled
           ? (sInfo.dir === 'in' ? 'Wala pa sa klase sa petsang ito' : 'Wala na sa klase sa petsang ito')
           : (isConverted
             ? 'Ikatlong late — binibilang na absent at may x sa SF2'
-            : 'Click para i-cycle: Present → Absent → Late → Modular');
+            : (needsProof
+              ? 'Excused ngunit walang patunay pa — i-right click para maglagay'
+              : 'Click para i-cycle: Present → Absent → Late → Excused. Right click sa E para sa patunay.'));
         return `<td data-sid="${s.id}" data-day="${slot.day}" title="${tip}" style="text-align:center; cursor:${(isHoliday||notEnrolled)?'default':'pointer'}; ${borderStyle} ${cellStyle}${isConverted ? ' box-shadow: inset 0 0 0 2px var(--danger);' : ''}">${ch}</td>`;
       }).join('');
       cells += `<td style="text-align:center; font-weight:600; color:var(--ok);">${totals.present}</td><td style="text-align:center; font-weight:600; color:var(--danger);">${totals.absent}</td><td style="text-align:center; font-weight:600; color:#a3690a;">${totals.late}</td>`;
@@ -4711,6 +4806,14 @@ function renderAttendanceView(){
         if(data.holidays.includes(day)) return;
         if(!sf2EnrolledOnDay(s, attMonth, day)) return;   // naka-lock
         td.addEventListener('click', ()=> toggleAttendanceMark(s.id, day));
+        /* Hindi pinapabagal ang araw-araw na pagmamarka: ang patunay ay
+           hiwalay na hakbang, hinihingi lamang kapag kailangan. */
+        td.addEventListener('contextmenu', (ev)=>{
+          const mk = data.marks[s.id] && data.marks[s.id][day];
+          if(mk !== 'E') return;
+          ev.preventDefault();
+          openExcuseDialog(s.id, day);
+        });
       });
     });
   }
@@ -10117,7 +10220,8 @@ function schoolDaysTimeline(s){
           month, day:d.day,
           iso:`${yearForMonth(month)}-${String(MONTH_JS_INDEX[month]+1).padStart(2,'0')}-${String(d.day).padStart(2,'0')}`,
           absent: sf2DayAbsent(s.id, month, d.day, conv),
-          late: marks[d.day] === 'L'
+          late: marks[d.day] === 'L',
+          excused: marks[d.day] === 'E' || marks[d.day] === 'M'
         });
       });
   });
@@ -10172,6 +10276,35 @@ function admissionObligations(s){
   tl.forEach(d=>{ if(d.absent) run.push(d); else flush(); });
   flush();
 
+  /* 1.4 — excused man, kailangan pa rin ng excuse letter
+     mula sa magulang. Isang obligasyon kada tuloy-tuloy na hanay. */
+  let mrun = [];
+  const mflush = ()=>{
+    if(mrun.length){
+      const many = mrun.length >= 3;
+      /* Kung may wastong patunay na ang lahat ng araw sa hanay, wala nang
+         utang na sulat — 'yan ang silbi ng pagtatala ng uri ng patunay. */
+      const allValid = mrun.every(d =>
+        excuseProof(excuseInfo(d.month, s.id, d.day).proof).valid);
+      if(allValid) { mrun = []; return; }
+      out.push({
+        id:'M' + mrun[0].iso,
+        kind:'letter',
+        rule: many ? '1.4 / 1.5' : '1.4',
+        iso: mrun[mrun.length-1].iso,
+        label:`Excuse letter — ${mrun.length} araw na excused`,
+        reason: (mrun.map(d => excuseInfo(d.month, s.id, d.day).reason).filter(Boolean)[0] || ''),
+        detail:`${admitFmt(mrun[0].iso)}${mrun.length > 1 ? ' hanggang ' + admitFmt(mrun[mrun.length-1].iso) : ''} — `
+          + 'excused ang mga araw na ito, ngunit kailangan pa rin ng excuse letter na pirmado ng magulang (1.4).'
+          + (many ? ' Dahil umabot sa 3 araw, maaaring hingan din ng admission slip ayon sa 1.5 — '
+                  + 'depende sa gawi ng paaralan.' : '')
+      });
+    }
+    mrun = [];
+  };
+  tl.forEach(d=>{ if(d.excused) mrun.push(d); else mflush(); });
+  mflush();
+
   out.sort((a,b)=> a.iso.localeCompare(b.iso));
   return out;
 }
@@ -10196,17 +10329,25 @@ function admissionSummary(s){
      ng slip. Ang ibinibigay dito ay hango sa lohika ng 1.1 (minor offense)
      at sa escalation na tatlong minor ay isang major. */
   const advice = [];
-  if(pending.length === 0 && list.length){
+  const letterPending = pending.filter(o => o.kind === 'letter');
+  if(letterPending.length >= 2){
+    advice.push({ level:'mid', text:`${letterPending.length} excuse letter ang hindi pa naipapasa `
+      + '(kasama ang para sa mga araw na excused). Ayon sa 1.4, kailangan ito kahit excused ang pagliban.' });
+  }
+  /* Ang payo tungkol sa slip ay bumibilang lamang ng slip — hindi kasama
+     ang excuse letter, dahil magkaiba ang kanilang bigat. */
+  const slipPending = pending.filter(o => o.kind !== 'letter');
+  if(slipPending.length === 0 && list.some(o => o.kind !== 'letter')){
     advice.push({ level:'low', text:'Walang utang na admission slip — kumpleto ang dokumentasyon.' });
-  } else if(pending.length === 1){
+  } else if(slipPending.length === 1){
     advice.push({ level:'low', text:'Isang slip pa lang ang kulang. Ipaalala sa bata bago pa madagdagan.' });
-  } else if(pending.length === 2){
+  } else if(slipPending.length === 2){
     advice.push({ level:'mid', text:'Dalawang slip na ang kulang. Magpadala ng sulat sa magulang at itala bilang insidente (1.1).' });
-  } else if(pending.length >= 3 && pending.length < 5){
-    advice.push({ level:'high', text:`${pending.length} slip na ang kulang. Ang paulit-ulit na hindi pagkuha ay `
+  } else if(slipPending.length >= 3 && slipPending.length < 5){
+    advice.push({ level:'high', text:`${slipPending.length} slip na ang kulang. Ang paulit-ulit na hindi pagkuha ay `
       + 'bahagi ng 1.1 (minor offense) — tatlong minor ay katumbas ng isang major. Panahon na ng parent conference.' });
-  } else if(pending.length >= 5){
-    advice.push({ level:'critical', text:`${pending.length} slip na ang kulang. Malinaw nang hindi nadodokumento ang `
+  } else if(slipPending.length >= 5){
+    advice.push({ level:'critical', text:`${slipPending.length} slip na ang kulang. Malinaw nang hindi nadodokumento ang `
       + 'pagliban. Isangguni sa Guidance Office at isama sa Intervention Tracker bilang isang talaan.' });
   }
   return { list, pending, secured, excused, advice };
@@ -10250,9 +10391,20 @@ function suggestedAction(cat, nth){
 
 /* Absent at late sa iisang buwan lamang. */
 function monthTally(s, month){
-  if(!monthHasStarted(month)) return { absent:0, late:0, days:0 };
+  if(!monthHasStarted(month)) return { absent:0, late:0, excused:0, days:0 };
   const t = sf2EnrolledTotals(s, month);
-  return { absent:t.absent, late:t.late, days:sf2EnrolledSchoolDays(s, month) };
+  /* Ang M (Modular / Distance) ay hindi absent — itinuturing na excused,
+     pero kailangan pa rin ng excuse letter ayon sa 1.4. */
+  const md = getMonthData(month);
+  const marks = (md.marks && md.marks[s.id]) || {};
+  let excused = 0;
+  weekdaysInMonth(month)
+    .filter(d => !md.holidays.includes(d.day))
+    .forEach(d=>{
+      if(!sf2EnrolledOnDay(s, month, d.day)) return;
+      if(marks[d.day] === 'E' || marks[d.day] === 'M') excused++;
+    });
+  return { absent:t.absent, late:t.late, excused, days:sf2EnrolledSchoolDays(s, month) };
 }
 
 /* Aling buwan ang napag-usapan na sa mga naunang insidente. */
@@ -10270,7 +10422,7 @@ function openMonths(s){
   return MONTHS_ORDER.filter(m=>{
     if(!monthHasStarted(m) || done.has(m)) return false;
     const t = monthTally(s, m);
-    return t.absent > 0 || t.late > 0;
+    return t.absent > 0 || t.late > 0 || t.excused > 0;
   });
 }
 
@@ -10280,8 +10432,9 @@ function monthBreakdownLines(s, months){
   months.forEach(m=>{
     const t = monthTally(s, m);
     const name = m.charAt(0) + m.slice(1).toLowerCase();
-    if(t.absent) out.push(`${t.absent} NA PAGLIBAN NITONG BUWAN NG ${m}`);
-    if(t.late)   out.push(`${t.late} NA PAGKAKAHULI SA KLASE NITONG BUWAN NG ${m}`);
+    if(t.absent)  out.push(`${t.absent} NA PAGLIBAN NITONG BUWAN NG ${m}`);
+    if(t.late)    out.push(`${t.late} NA PAGKAKAHULI SA KLASE NITONG BUWAN NG ${m}`);
+    if(t.excused) out.push(`${t.excused} NA ARAW NA EXCUSED NITONG BUWAN NG ${m}`);
   });
   return out;
 }
@@ -10519,10 +10672,14 @@ function renderAdmission(s){
   const lv = ADV_LEVEL[(sum.advice[0] || {}).level || 'low'];
   document.getElementById('admitSummary').innerHTML = `
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:10px; margin-bottom:10px;">
-      ${[['Utang', sum.pending.length, 'var(--danger)'],
-         ['Nakakuha na', sum.secured.length, 'var(--ok)'],
-         ['Hindi na kailangan', sum.excused.length, 'var(--ink-soft)'],
-         ['Kabuuan', sum.list.length, 'var(--ink)']].map(([l,v,col])=>`
+      ${(()=>{
+        const slipPend = sum.pending.filter(o => o.kind !== 'letter').length;
+        const letterPend = sum.pending.filter(o => o.kind === 'letter').length;
+        return [['Utang na slip', slipPend, 'var(--danger)'],
+                ['Kulang na sulat', letterPend, '#a3690a'],
+                ['Naipasa na', sum.secured.length, 'var(--ok)'],
+                ['Kabuuan', sum.list.length, 'var(--ink)']];
+      })().map(([l,v,col])=>`
         <div style="background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
           padding:10px; text-align:center;">
           <div style="font-family:'Lora',serif; font-size:21px; font-weight:600; color:${col};">${v}</div>
@@ -10541,7 +10698,8 @@ function renderAdmission(s){
     return `<div style="display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line);
         border-radius:var(--radius); padding:10px 12px; margin-bottom:7px; background:${info.bg};">
       <input type="checkbox" data-admit="${escapeHtml(o.id)}" ${st.status === 'secured' ? 'checked' : ''}
-        style="width:auto; margin-top:3px;" title="Markahan kapag nakakuha na">
+        style="width:auto; margin-top:3px;"
+        title="${o.kind === 'letter' ? 'Markahan kapag naipasa na ang sulat' : 'Markahan kapag nakakuha na ng slip'}">
       <div style="flex:1; min-width:0;">
         <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;">
           <strong style="font-size:12.5px;">${i+1}. ${escapeHtml(o.label)}</strong>
@@ -10800,7 +10958,7 @@ function anecRenderMonths(s, selected){
         background:${on ? '#fdfaf1' : '#fff'}; ${used ? 'opacity:.55;' : ''}">
       <input type="checkbox" data-month="${m}" ${on ? 'checked' : ''} style="width:auto; margin:0;">
       <span>${name}</span>
-      <span style="color:var(--ink-soft);">${t.absent}A / ${t.late}L</span>
+      <span style="color:var(--ink-soft);">${t.absent}A / ${t.late}L${t.excused ? ' / ' + t.excused + 'E' : ''}</span>
       ${used ? '<span style="color:var(--ok);">&#10003;</span>' : ''}
     </label>`;
   }).join('');
@@ -11846,6 +12004,84 @@ function statusDlgRefresh(){
   }
 }
 
+/* ---- dialog ng patunay ng excused ---- */
+let excuseDlg = { sid:null, day:null };
+
+function openExcuseDialog(studentId, day){
+  const s = students.find(x => x.id === studentId);
+  if(!s) return;
+  excuseDlg = { sid:studentId, day };
+  const info = excuseInfo(attMonth, studentId, day);
+  const name = `${s.lastName || ''}, ${s.firstName || ''}`.replace(/^,\s*/,'').trim();
+  const d = new Date(yearForMonth(attMonth), MONTH_JS_INDEX[attMonth], day);
+  document.getElementById('excuseDlgSub').textContent =
+    `${name} — ${d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}`;
+
+  const sel = document.getElementById('excuseDlgProof');
+  sel.innerHTML = EXCUSE_PROOF.map(p=>`<option value="${p.k}">${escapeHtml(p.label)}</option>`).join('');
+  sel.value = info.proof || 'none';
+  document.getElementById('excuseDlgReason').value = info.reason || '';
+  document.getElementById('excuseDlgAll').checked = false;
+  excuseDlgHint();
+
+  const ov = document.getElementById('excuseOverlay');
+  ov.hidden = false; ov.style.display = 'flex';
+}
+function closeExcuseDialog(){
+  const ov = document.getElementById('excuseOverlay');
+  ov.hidden = true; ov.style.display = 'none';
+  excuseDlg = { sid:null, day:null };
+}
+function excuseDlgHint(){
+  const p = excuseProof(document.getElementById('excuseDlgProof').value);
+  const el = document.getElementById('excuseDlgHint');
+  el.style.color = p.valid ? 'var(--ok)' : 'var(--danger)';
+  el.textContent = p.valid
+    ? 'Sapat ito bilang dokumento ayon sa 1.4 at 1.5.'
+    : 'Hindi pa ito kumpletong dokumento — kailangan pa rin ng sulat na pirmado ng magulang (1.4).';
+}
+
+/* Hanay ng magkakasunod na araw na excused, para maisabay ang paglalagay. */
+function excuseRunDays(studentId, day){
+  const md = getMonthData(attMonth);
+  const marks = (md.marks && md.marks[studentId]) || {};
+  const days = weekdaysInMonth(attMonth)
+    .filter(d => !md.holidays.includes(d.day))
+    .map(d => d.day).sort((a,b)=> a-b);
+  const i = days.indexOf(day);
+  if(i === -1) return [day];
+  const run = [day];
+  for(let k = i-1; k >= 0 && marks[days[k]] === 'E'; k--) run.unshift(days[k]);
+  for(let k = i+1; k < days.length && marks[days[k]] === 'E'; k++) run.push(days[k]);
+  return run;
+}
+
+(function(){
+  const sel = document.getElementById('excuseDlgProof');
+  if(!sel) return;
+  sel.addEventListener('change', excuseDlgHint);
+  document.getElementById('excuseDlgCancel').addEventListener('click', closeExcuseDialog);
+  document.getElementById('excuseOverlay').addEventListener('click', (e)=>{
+    if(e.target.id === 'excuseOverlay') closeExcuseDialog();
+  });
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && document.getElementById('excuseOverlay').style.display === 'flex') closeExcuseDialog();
+  });
+  document.getElementById('excuseDlgSave').addEventListener('click', ()=>{
+    if(!excuseDlg.sid) return;
+    const patch = {
+      proof: document.getElementById('excuseDlgProof').value,
+      reason: document.getElementById('excuseDlgReason').value.trim()
+    };
+    const days = document.getElementById('excuseDlgAll').checked
+      ? excuseRunDays(excuseDlg.sid, excuseDlg.day) : [excuseDlg.day];
+    days.forEach(d => setExcuseInfo(attMonth, excuseDlg.sid, d, patch));
+    closeExcuseDialog();
+    renderAttendanceView();
+    showToast(days.length > 1 ? `Naitala sa ${days.length} araw.` : 'Naitala ang patunay.');
+  });
+})();
+
 function openStatusDialog(studentId){
   const s = students.find(x => x.id === studentId);
   if(!s) return;
@@ -12290,6 +12526,7 @@ document.getElementById('btnPublishCards').addEventListener('click', async ()=>{
 });
 
 /* Initial render */
+migrateModularToExcused();
 sortStudents();
 renderMasterlist();
 maybeCreateDailyVersion();
