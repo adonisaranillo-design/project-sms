@@ -770,14 +770,7 @@
       </div>
       <div class="field">
         <label>Uri ng paglabag</label>
-        <div style="display:flex; gap:6px;">
-          <select id="anecDlgCategory" style="flex:1; min-width:0;"></select>
-          <button class="btn btn-sm" id="anecDlgAddOff" type="button" style="flex:0 0 auto;">&#43;</button>
-        </div>
-        <div id="anecOffChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:7px;"></div>
-        <div style="font-size:10.5px; color:var(--ink-soft); margin-top:4px;">
-          Puwedeng magdagdag ng higit sa isa. Ang pinakamabigat ang susundin sa hakbang.
-        </div>
+        <select id="anecDlgCategory"></select>
       </div>
     </div>
 
@@ -10589,7 +10582,7 @@ function offenseTally(studentId, uptoIdx){
   const counts = { minor:0, major:0, grave:0, constitutional:0, do1:0, do2:0, do3:0 };
   let result = null;
   for(const { e, i } of list){
-    const o = entryTopOffense(e);
+    const o = offenseByCode(e.category);
     const cat = o ? o.cat : 'minor';
     counts[cat]++;
     if(i === uptoIdx){
@@ -10784,74 +10777,6 @@ function admissionSummary(s){
       + 'pagliban. Isangguni sa Guidance Office at isama sa Intervention Tracker bilang isang talaan.' });
   }
   return { list, pending, secured, excused, advice };
-}
-
-/* =========================================================
-   MARAMIHANG PAGLABAG SA IISANG INSIDENTE
-   Puwedeng magsabay ang minor at major. Ang pinakamabigat
-   ang nagtatakda ng hakbang — hindi ang una mong napili.
-   ========================================================= */
-
-/* Mga paglabag ng isang talaan. Sinusuportahan ang lumang
-   anyo na iisa lang ang code. */
-function entryOffenses(e){
-  const codes = (e && e.categories && e.categories.length)
-    ? e.categories : (e && e.category ? [e.category] : []);
-  return codes.map(offenseByCode).filter(Boolean);
-}
-
-/* Ang pinakamabigat sa mga napili — ito ang susundin. */
-function entryTopOffense(e){
-  const list = entryOffenses(e);
-  if(!list.length) return null;
-  return list.slice().sort((a,b)=>
-    (GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)
-    || (a.src === 'do006' ? -1 : 1))[0];
-}
-
-/* Buuin ang teksto ng insidente mula sa napiling paglabag. */
-function composeIncidentText(codes, monthLines){
-  const lines = [];
-  (monthLines || []).forEach(l => lines.push(l));
-  codes.map(offenseByCode).filter(Boolean).forEach(o=>{
-    lines.push(`${o.code} — ${o.text.charAt(0).toLowerCase()}${o.text.slice(1)}`);
-  });
-  return lines.map(l => '• ' + l).join('\n');
-}
-
-/* Pangako ng mag-aaral, hango sa uri ng napiling paglabag. */
-const PROMISE_BY_CAT = {
-  minor: 'susunod na po ako sa patakaran ng paaralan at hindi ko na uulitin ang nagawa ko',
-  do1:   'susunod na po ako sa patakaran ng paaralan at hindi ko na uulitin ang nagawa ko',
-  major: 'pananagutan ko po ang aking nagawa, hindi ko na uulitin, at susunod na po ako sa alituntunin',
-  do2:   'pananagutan ko po ang aking nagawa, hindi ko na uulitin, at susunod na po ako sa alituntunin',
-  grave: 'lubos ko pong pinagsisisihan ang aking nagawa, pananagutan ko ito, at makikipagtulungan po ako sa anumang hakbang ng paaralan',
-  do3:   'lubos ko pong pinagsisisihan ang aking nagawa, pananagutan ko ito, at makikipagtulungan po ako sa anumang hakbang ng paaralan',
-  constitutional: 'pananagutan ko po ang aking nagawa at makikipagtulungan sa paaralan at sa nararapat na awtoridad'
-};
-
-function composePromise(codes){
-  const list = codes.map(offenseByCode).filter(Boolean);
-  if(!list.length) return '';
-  const top = list.slice().sort((a,b)=> GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)[0];
-  return PROMISE_BY_CAT[top.cat] || PROMISE_BY_CAT.minor;
-}
-
-/* Ang kahihinatnan, hango sa matrix — handbook o DO 006. */
-function composeConsequence(studentId, codes, idx){
-  const list = codes.map(offenseByCode).filter(Boolean);
-  if(!list.length) return '';
-  const top = list.slice().sort((a,b)=> GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)[0];
-  const steps = CONSEQUENCE[top.cat] || CONSEQUENCE.minor;
-  /* Ilang beses na sa antas na ito, hindi pa kasama ang kasalukuyan. */
-  const prior = (anecdotal[studentId] || []).filter((e, i)=>{
-    if(i === idx) return false;
-    const t = entryTopOffense(e);
-    return t && t.cat === top.cat;
-  }).length;
-  const nth = Math.min(prior + 1, steps.length);
-  const base = steps[nth - 1];
-  return `alam ko po na ang magiging hakbang ng paaralan ay: ${base}`;
 }
 
 /* =========================================================
@@ -11648,75 +11573,21 @@ function anecSyncFromMonths(s){
   anecRenderSuggest(s);
 }
 
-/* ---- napiling paglabag sa kasalukuyang dialog ---- */
-let anecPicked = [];        // mga code
-let anecAuto = { incident:true, promise:true, consequence:true };
-
-function anecRenderChips(){
-  const host = document.getElementById('anecOffChips');
-  if(!anecPicked.length){
-    host.innerHTML = '<span style="font-size:11.5px; color:var(--danger);">Wala pang napiling paglabag.</span>';
-    return;
-  }
-  host.innerHTML = anecPicked.map(code=>{
-    const o = offenseByCode(code);
-    const g = GRAVITY[(o || {}).cat || 'minor'];
-    return `<span style="display:inline-flex; align-items:center; gap:6px; font-size:11px;
-        font-weight:600; padding:3px 8px; border-radius:20px; background:${g.bg}; color:${g.c};
-        border:1px solid ${g.c}33;">
-      ${escapeHtml(code)}${o && o.src === 'do006' ? ' · DO 006' : ''}
-      <button type="button" data-rmoff="${escapeHtml(code)}" title="Alisin"
-        style="border:0; background:none; color:${g.c}; cursor:pointer; font-size:13px; line-height:1; padding:0;">×</button>
-    </span>`;
-  }).join('');
-  host.querySelectorAll('[data-rmoff]').forEach(b=>{
-    b.addEventListener('click', ()=>{
-      anecPicked = anecPicked.filter(x => x !== b.dataset.rmoff);
-      anecSyncTexts();
-    });
-  });
+function anecApplyCategoryDefaults(){
+  const o = offenseByCode(document.getElementById('anecDlgCategory').value);
+  if(!o) return;
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if(!el.value.trim()) el.value = val;
+  };
+  /* Ang teksto ng paglabag ay galing mismo sa handbook. */
+  set('anecDlgIncident', `${o.text.charAt(0).toLowerCase()}${o.text.slice(1)} (${o.code})`);
+  set('anecDlgPromise', 'hindi ko na po uulitin ang nagawa ko at susunod na po ako sa patakaran ng paaralan');
+  const g = GRAVITY[o.cat];
+  set('anecDlgConsequence', g.rank >= 3
+    ? 'isasangguni po ang usapin sa School Discipline Committee at sa Guidance Office'
+    : 'ipatatawag po ang aking magulang at isasangguni sa School Discipline Committee');
 }
-
-/* Awtomatikong pinupunan ang tatlong kahon mula sa napiling paglabag.
-   Humihinto ito kapag may sarili nang sinulat ang guro. */
-function anecSyncTexts(){
-  anecRenderChips();
-  const s = students.find(x => x.id === anecDlgSid);
-  const months = anecSelectedMonths();
-  const monthLines = (s && months.length) ? monthBreakdownLines(s, months) : [];
-
-  if(anecAuto.incident){
-    document.getElementById('anecDlgIncident').value =
-      composeIncidentText(anecPicked, monthLines);
-  }
-  if(anecAuto.promise){
-    document.getElementById('anecDlgPromise').value = composePromise(anecPicked);
-  }
-  if(anecAuto.consequence && s){
-    document.getElementById('anecDlgConsequence').value =
-      composeConsequence(s.id, anecPicked, anecDlgIdx);
-  }
-
-  /* Saklaw na buwan — lumalabas kapag may paglabag sa pagpasok. */
-  const isAtt = anecPicked.includes('1.1');
-  document.getElementById('anecMonthsWrap').style.display = isAtt ? 'block' : 'none';
-  if(isAtt && s && !document.getElementById('anecMonths').innerHTML) anecRenderMonths(s, openMonths(s));
-
-  /* Mungkahing aksyon ayon sa pinakamabigat. */
-  if(s && anecPicked.length){
-    const top = entryTopOffense({ categories: anecPicked });
-    if(top){
-      const prior = (anecdotal[s.id] || []).filter((e,i)=>{
-        if(i === anecDlgIdx) return false;
-        const t = entryTopOffense(e);
-        return t && t.cat === top.cat;
-      }).length;
-      document.getElementById('anecDlgAction').value = suggestedAction(top.cat, prior + 1);
-    }
-  }
-  if(s) anecRenderSuggest(s);
-}
-
 
 function anecRenderSuggest(s){
   const host = document.getElementById('anecDlgSuggest');
