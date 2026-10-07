@@ -770,7 +770,14 @@
       </div>
       <div class="field">
         <label>Uri ng paglabag</label>
-        <select id="anecDlgCategory"></select>
+        <div style="display:flex; gap:6px;">
+          <select id="anecDlgCategory" style="flex:1; min-width:0;"></select>
+          <button class="btn btn-sm" id="anecDlgAddOff" type="button" style="flex:0 0 auto;">&#43;</button>
+        </div>
+        <div id="anecOffChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:7px;"></div>
+        <div style="font-size:10.5px; color:var(--ink-soft); margin-top:4px;">
+          Puwedeng magdagdag ng higit sa isa. Ang pinakamabigat ang susundin sa hakbang.
+        </div>
       </div>
     </div>
 
@@ -1952,6 +1959,21 @@
         <span style="font-size:11.5px; color:var(--ink-soft);">Click a date sa column header para markahan bilang <strong>No Class</strong>. Click ang cell ng estudyante para i-cycle: <strong style="color:var(--ok);">Present</strong> → <strong style="color:var(--danger);">Absent</strong> → <strong style="color:#a3690a;">Late</strong> → <strong style="color:var(--male);">Excused</strong>. 3 Late = 1 Absent (auto-compute) &mdash; ang ikatlong late ay may <strong>*</strong> at pulang border, at 'yun ang lalagyan ng <strong>x</strong> sa SF2. <strong>Right click</strong> sa isang <strong style="color:var(--male);">E</strong> para ilagay ang patunay (sulat, chat, medical) at ang dahilan &mdash; ang <strong>E?</strong> ay walang patunay pa.</span>
       </div>
 
+      <div class="card no-print" id="pdCard" hidden>
+        <h2><span class="num">&#128337;</span> Breakdown kada period</h2>
+        <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
+          Ang mga araw na may asul na guhit sa ibaba ng cell ay may detalye mula sa secretary.
+          Pumili ng araw para makita kung saang period nangyari ang absent o late.
+        </p>
+        <div class="toolbar" style="margin-top:10px;">
+          <div class="field" style="min-width:200px;">
+            <label>Araw</label>
+            <select id="pdDay"></select>
+          </div>
+        </div>
+        <div id="pdTable" style="overflow-x:auto; margin-top:10px;"></div>
+      </div>
+
       <div class="card">
         <h2><span class="num">&#128100;</span> Attendance ng Class Secretary</h2>
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
@@ -1965,6 +1987,13 @@
           <div class="field">
             <label>Email ng secretary</label>
             <input type="email" id="secEmail" placeholder="email@example.com">
+          </div>
+          <div class="field" style="min-width:300px;">
+            <label>Mga period (paghiwalayin ng kuwit)</label>
+            <input type="text" id="secPeriods" placeholder="1st, 2nd, 3rd, 4th, 5th, 6th, 7th, 8th">
+            <div style="font-size:10.5px; color:var(--ink-soft); margin-top:3px;">
+              Puwedeng pangalan ng subject. Iwanang blangko kung buong araw lang ang markahan.
+            </div>
           </div>
           <div class="field">
             <label>Hanggang ilang araw pabalik</label>
@@ -2574,8 +2603,10 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
       if(setupData.secretaryBackdays !== undefined){
         document.getElementById('secBackdays').value = String(setupData.secretaryBackdays);
       }
+      document.getElementById('secPeriods').value = setupData.secretaryPeriods || '';
       secCheckForUpdates();
       secStartListening();
+      renderPeriodBreakdown();
     }
     if(v === 'awards'){ renderAwardsView(); }
     if(v === 'archives'){ renderArchivesList(); }
@@ -4760,6 +4791,57 @@ const ATT_MARK_STYLE = {
   'M': { ch:'E', style:'background:#e8f0fb; color:var(--male); font-weight:700;' },
 };
 
+/* Talahanayan ng breakdown kada period para sa isang araw. */
+function renderPeriodBreakdown(){
+  const card = document.getElementById('pdCard');
+  if(!card) return;
+  const labels = secPeriodList();
+  const md = getMonthData(attMonth);
+  const hasAny = labels.length && md.periods && Object.keys(md.periods).length;
+  card.hidden = !hasAny;
+  if(!hasAny) return;
+
+  /* Mga araw na may detalye lamang. */
+  const days = new Set();
+  Object.keys(md.periods).forEach(sid=>{
+    Object.keys(md.periods[sid]).forEach(d => days.add(parseInt(d)));
+  });
+  const sorted = Array.from(days).sort((a,b)=> a-b);
+  const sel = document.getElementById('pdDay');
+  const prev = sel.value;
+  sel.innerHTML = sorted.map(d=>{
+    const dt = new Date(yearForMonth(attMonth), MONTH_JS_INDEX[attMonth], d);
+    return `<option value="${d}">${dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}</option>`;
+  }).join('');
+  if(prev && sorted.includes(parseInt(prev))) sel.value = prev;
+  const day = parseInt(sel.value) || sorted[0];
+
+  const listed = students.filter(s => sf2AppearsInMonth(s, attMonth));
+  const rows = listed.filter(s => md.periods[s.id] && md.periods[s.id][day]);
+  if(!rows.length){
+    document.getElementById('pdTable').innerHTML =
+      '<p style="font-size:12.5px; color:var(--ink-soft); margin:0;">Walang detalye sa araw na ito.</p>';
+    return;
+  }
+  const style = { A:'color:var(--danger); font-weight:700;', L:'color:#a3690a; font-weight:700;',
+                  E:'color:var(--male); font-weight:700;', P:'color:var(--ink-soft);' };
+  document.getElementById('pdTable').innerHTML = `<table style="font-size:12px;">
+    <thead><tr><th style="text-align:left;">Pangalan</th>
+      ${labels.map(l=>`<th style="width:54px;">${escapeHtml(l)}</th>`).join('')}
+      <th style="width:70px;">Buong araw</th></tr></thead>
+    <tbody>${rows.map(s=>{
+      const p = md.periods[s.id][day] || {};
+      const dayMark = (md.marks[s.id] && md.marks[s.id][day]) || 'P';
+      const name = `${s.lastName || ''}, ${s.firstName || ''}`.replace(/^,\s*/,'').trim();
+      return `<tr><td style="text-align:left;">${escapeHtml(name)}</td>
+        ${labels.map((l,i)=>{
+          const v = p[i] || 'P';
+          return `<td style="text-align:center; ${style[v] || ''}">${v}</td>`;
+        }).join('')}
+        <td style="text-align:center; ${style[dayMark] || ''}">${dayMark}</td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
 function renderAttendanceView(){
   renderAttLetterhead();
   const days = weekdaysInMonth(attMonth); // actual school days, for stats/totals
@@ -4853,14 +4935,19 @@ function renderAttendanceView(){
         const needsProof = mark === 'E' && excuseInfo(attMonth, s.id, slot.day).proof === 'none';
         const ch = isHoliday ? '—' : (notEnrolled ? '·'
           : (info ? (isConverted ? info.ch + '*' : (needsProof ? info.ch + '?' : info.ch)) : 'P'));
-        const tip = notEnrolled
+        /* Kapag galing sa secretary na per period, ipinapakita ang
+           buong hanay sa tooltip — kaya nakikita kung saang period
+           nangyari ang absent o late. */
+        const pdet = periodDetail(attMonth, s.id, slot.day);
+        const baseTip = notEnrolled
           ? (sInfo.dir === 'in' ? 'Wala pa sa klase sa petsang ito' : 'Wala na sa klase sa petsang ito')
           : (isConverted
             ? 'Ikatlong late — binibilang na absent at may x sa SF2'
             : (needsProof
               ? 'Excused ngunit walang patunay pa — i-right click para maglagay'
               : 'Click para i-cycle: Present → Absent → Late → Excused. Right click sa E para sa patunay.'));
-        return `<td data-sid="${s.id}" data-day="${slot.day}" title="${tip}" style="text-align:center; cursor:${(isHoliday||notEnrolled)?'default':'pointer'}; ${borderStyle} ${cellStyle}${isConverted ? ' box-shadow: inset 0 0 0 2px var(--danger);' : ''}">${ch}</td>`;
+        const tip = pdet ? `${pdet}\n${baseTip}` : baseTip;
+        return `<td data-sid="${s.id}" data-day="${slot.day}" title="${escapeHtml(tip)}" ${pdet ? 'data-pd="1"' : ''} style="text-align:center; cursor:${(isHoliday||notEnrolled)?'default':'pointer'};${pdet ? ' border-bottom:2px solid var(--male);' : ''} ${borderStyle} ${cellStyle}${isConverted ? ' box-shadow: inset 0 0 0 2px var(--danger);' : ''}">${ch}</td>`;
       }).join('');
       cells += `<td style="text-align:center; font-weight:600; color:var(--ok);">${totals.present}</td><td style="text-align:center; font-weight:600; color:var(--danger);">${totals.absent}</td><td style="text-align:center; font-weight:600; color:#a3690a;">${totals.late}</td>`;
       tr.innerHTML = cells;
@@ -8862,6 +8949,7 @@ function secSchedulePush(){
       await fbDb.collection('class_attendance').doc(secClassId()).update({
         marks: secLocalMarks(),
         excuses: secLocalExcuses(),
+        periods: secLocalPeriods(),
         updatedAt: Date.now(),
         updatedBy: 'teacher'
       });
@@ -8887,6 +8975,8 @@ async function secStartListening(){
         const res = secApplyMarks(data.marks);
         const exc = secApplyExcuses(data.excuses);
         if(exc) res.applied += exc;
+        const per = secApplyPeriods(data.periods);
+        if(per) res.applied += per;
         secApplyingRemote = false;
 
         localStorage.setItem(SEC_SEEN_KEY, String(data.updatedAt || 0));
@@ -9049,6 +9139,86 @@ async function secFindDoc(){
   }
 }
 
+/* =========================================================
+   PER-PERIOD NA ATTENDANCE
+   Ang secretary ay nagmamarka kada period; ang sistema ay
+   iisang marka kada araw, dahil araw-araw ang SF2.
+   Tuntunin ng pagsasama: Absent > Late > Excused > Present.
+   ========================================================= */
+function secPeriodList(){
+  const raw = (setupData.secretaryPeriods || '').trim();
+  if(!raw) return [];
+  return raw.split(',').map(s => s.trim()).filter(Boolean).slice(0, 12);
+}
+
+/* Isang marka mula sa maraming period. */
+function rollUpPeriods(obj){
+  const vals = Object.values(obj || {}).filter(Boolean);
+  if(!vals.length) return '';
+  if(vals.includes('A')) return 'A';
+  if(vals.includes('L')) return 'L';
+  if(vals.includes('E')) return 'E';
+  return '';                      // lahat present
+}
+
+/* Ang detalye kada period, isinasalin sa petsa para sa cloud. */
+function secLocalPeriods(){
+  const out = {};
+  Object.keys(attendance || {}).forEach(month=>{
+    const md = attendance[month];
+    if(!md || !md.periods) return;
+    const year = yearForMonth(month), mi = MONTH_JS_INDEX[month];
+    if(mi === undefined) return;
+    Object.keys(md.periods).forEach(sid=>{
+      Object.keys(md.periods[sid]).forEach(day=>{
+        const key = secDateKey(new Date(year, mi, parseInt(day)));
+        if(!out[key]) out[key] = {};
+        out[key][sid] = md.periods[sid][day];
+      });
+    });
+  });
+  return out;
+}
+
+/* Ibinabalik ang detalye, at tinitiyak na tugma ang araw-araw na marka. */
+function secApplyPeriods(periods){
+  let applied = 0;
+  Object.keys(periods || {}).forEach(dateKey=>{
+    const d = new Date(dateKey + 'T00:00:00');
+    if(isNaN(d)) return;
+    const month = MONTHS_ORDER.find(m =>
+      MONTH_JS_INDEX[m] === d.getMonth() && yearForMonth(m) === d.getFullYear());
+    if(!month) return;
+    const md = getMonthData(month);
+    if(!md.periods) md.periods = {};
+    const day = d.getDate();
+    Object.keys(periods[dateKey]).forEach(sid=>{
+      if(!students.some(s => s.id === sid)) return;
+      const incoming = periods[dateKey][sid] || {};
+      if(!md.periods[sid]) md.periods[sid] = {};
+      if(JSON.stringify(md.periods[sid][day] || {}) !== JSON.stringify(incoming)){
+        md.periods[sid][day] = incoming;
+        applied++;
+      }
+    });
+  });
+  if(applied) saveAttendance();
+  return applied;
+}
+
+/* Paglalarawan ng detalye kada period — ipinapakita sa tooltip. */
+function periodDetail(month, studentId, day){
+  const md = getMonthData(month);
+  const p = (md.periods && md.periods[studentId] && md.periods[studentId][day]) || null;
+  if(!p) return '';
+  const labels = secPeriodList();
+  const parts = Object.keys(p).sort((a,b)=> parseInt(a) - parseInt(b)).map(i=>{
+    const name = labels[parseInt(i)] || `P${parseInt(i)+1}`;
+    return `${name}: ${p[i] || 'P'}`;
+  });
+  return parts.join(' · ');
+}
+
 /* Ang mga dahilan ng excused, isinasalin sa petsa para sa cloud. */
 function secLocalExcuses(){
   const out = {};
@@ -9104,6 +9274,7 @@ async function secPublish(){
 
   setupData.secretaryEmail = email;
   setupData.secretaryBackdays = backdays;
+  setupData.secretaryPeriods = (document.getElementById('secPeriods').value || '').trim();
   saveSetup(setupData);
 
   const existing = await secFindDoc();
@@ -9144,6 +9315,8 @@ async function secPublish(){
     }, []),
     marks: secLocalMarks(),
     excuses: secLocalExcuses(),
+    periods: secLocalPeriods(),
+    periodLabels: secPeriodList(),
     proofOptions: EXCUSE_PROOF.map(p=>({ k:p.k, label:p.label, valid:p.valid })),
     updatedAt: Date.now(),
     updatedBy: 'teacher'
@@ -9183,6 +9356,8 @@ async function secPull(options){
   const res = secApplyMarks(data.marks);
   const exc = secApplyExcuses(data.excuses);
   if(exc) res.applied += exc;
+  const per = secApplyPeriods(data.periods);
+  if(per) res.applied += per;
   secRenderLog(data);
   if(res.applied){
     renderAttendanceView();
@@ -9499,7 +9674,11 @@ const FORM_DEFS = [
       const petsa = formsDate(ctx.inc.date);
       xml = anecDocxSetParagraph(xml, 2, `Petsa: ${petsa}`);
       xml = anecDocxSetParagraph(xml, 6, `Ako po si ${ctx.name} ng Grade/Section ${ctx.section}`);
-      xml = anecDocxSetParagraph(xml, 7, `ay gumawa ng paglabag sa patakaran ng paaralan na ${ctx.inc.incident || ''}`);
+      const offs = entryOffenses(ctx.inc);
+      const what = offs.length
+        ? offs.map(o => `${o.text.charAt(0).toLowerCase()}${o.text.slice(1)} (${o.code})`).join('; ')
+        : (ctx.inc.incident || '');
+      xml = anecDocxSetParagraph(xml, 7, `ay gumawa ng paglabag sa patakaran ng paaralan na ${what}`);
       [8, 9].forEach(i=>{ xml = anecDocxSetParagraph(xml, i, ''); });
       xml = anecDocxSetParagraph(xml, 11, `Ipinangangako ko po na ${ctx.inc.promise || ''}`);
       [12, 13].forEach(i=>{ xml = anecDocxSetParagraph(xml, i, ''); });
@@ -9521,7 +9700,9 @@ const FORM_DEFS = [
       xml = anecDocxSetParagraph(xml, 6,
         `Nais ko pong ipabatid sa inyo na ang inyong anak/alaga na si ${ctx.name} ng (Baitang at Pangkat) `
         + `${ctx.section} ay nakagawa ng ${ordinalFil(n)} paglabag (${ordinalEng(n)} offense) sa paaralan na `
-        + `${ctx.inc.incident || ''}. Umaasa po akong hindi na ito masusundan at magiging maayos na ang `
+        + `${(()=>{ const o = entryOffenses(ctx.inc);
+             return o.length ? o.map(x => `${x.text.charAt(0).toLowerCase()}${x.text.slice(1)} (${x.code})`).join('; ')
+                             : (ctx.inc.incident || ''); })()}. Umaasa po akong hindi na ito masusundan at magiging maayos na ang `
         + `kanyang asal sa paaralan.`);
       xml = anecDocxSetParagraph(xml, 10, `Class Adviser/ (Section) ${setupData.section || ''}`);
       return xml;
@@ -9699,11 +9880,12 @@ const FORM_DEFS = [
          ang magmarka. */
       /* Markahan ang tamang hanay ng gravity ayon sa handbook. */
       const rows = list.map(e=>{
-        const o = offenseByCode(e.category);
+        const all = entryOffenses(e);
+        const o = entryTopOffense(e);
         const cat = o ? o.cat : 'minor';
         return [
           formsDate(e.date),
-          (o ? `${o.code} ${o.text}` : (e.incident || '')),
+          (all.length ? all.map(x => `${x.code} ${x.text}`).join('; ') : (e.incident || '')),
           (cat === 'minor' || cat === 'do1') ? 'X' : '',
           (cat === 'major' || cat === 'do2') ? 'X' : '',
           (cat === 'grave' || cat === 'constitutional' || cat === 'do3') ? 'X' : '',
@@ -9732,7 +9914,7 @@ const FORM_DEFS = [
             ctx.section,
             e.incident || '',
             offenseConsequence(sid, (anecdotal[sid] || []).indexOf(e)).text,
-            (offenseByCode(e.category) || {}).code || ''
+            entryOffenses(e).map(o => o.code).join(', ')
           ]});
         });
       });
@@ -9757,7 +9939,7 @@ const FORM_DEFS = [
             formsDate(e.date),
             `${s.lastName || ''}, ${s.firstName || ''}`.replace(/^,\s*/,'').trim(),
             ctx.section,
-            anecCategory(e.category).label
+            entryOffenses(e).map(o => `${o.code} ${o.text}`).join('; ') || anecCategory(e.category).label
           ]});
         });
       });
@@ -10582,7 +10764,7 @@ function offenseTally(studentId, uptoIdx){
   const counts = { minor:0, major:0, grave:0, constitutional:0, do1:0, do2:0, do3:0 };
   let result = null;
   for(const { e, i } of list){
-    const o = offenseByCode(e.category);
+    const o = entryTopOffense(e);
     const cat = o ? o.cat : 'minor';
     counts[cat]++;
     if(i === uptoIdx){
@@ -10602,6 +10784,7 @@ function offenseTally(studentId, uptoIdx){
 /* Ang nararapat na hakbang ayon sa matrix. */
 function offenseConsequence(studentId, idx){
   const t = offenseTally(studentId, idx);
+  const entry = (anecdotal[studentId] || [])[idx];
   const steps = CONSEQUENCE[t.cat] || CONSEQUENCE.minor;
   const text = steps[Math.min(t.nth, steps.length) - 1];
   const notes = [];
@@ -10611,8 +10794,12 @@ function offenseConsequence(studentId, idx){
     notes.push(`Umabot na sa ${t.majorEquiv} major (kasama ang mula sa minor) — katumbas ng ${Math.floor(t.majorEquiv/3)} grave.`);
   if(t.cat === 'grave' || t.cat === 'constitutional')
     notes.push('Ayon sa handbook, "fair" ang kategorya sa Certificate of Moral Character.');
-  if(t.cat === 'major' && (offenseByCode((anecdotal[studentId]||[])[idx]?.category) || {}).code === '1.36')
+  if(entryOffenses(entry).some(o => o.code === '1.36' || o.code === 'D3.2'))
     notes.push('Ang cheating ay may kaukulang zero sa gawaing iyon.');
+  const multi = entryOffenses(entry);
+  if(multi.length > 1)
+    notes.push(`May ${multi.length} paglabag sa iisang insidente — ang pinakamabigat `
+      + `(${GRAVITY[t.cat].label}) ang sinusunod sa hakbang.`);
   return { tally:t, text, notes };
 }
 
@@ -10777,6 +10964,74 @@ function admissionSummary(s){
       + 'pagliban. Isangguni sa Guidance Office at isama sa Intervention Tracker bilang isang talaan.' });
   }
   return { list, pending, secured, excused, advice };
+}
+
+/* =========================================================
+   MARAMIHANG PAGLABAG SA IISANG INSIDENTE
+   Puwedeng magsabay ang minor at major. Ang pinakamabigat
+   ang nagtatakda ng hakbang — hindi ang una mong napili.
+   ========================================================= */
+
+/* Mga paglabag ng isang talaan. Sinusuportahan ang lumang
+   anyo na iisa lang ang code. */
+function entryOffenses(e){
+  const codes = (e && e.categories && e.categories.length)
+    ? e.categories : (e && e.category ? [e.category] : []);
+  return codes.map(offenseByCode).filter(Boolean);
+}
+
+/* Ang pinakamabigat sa mga napili — ito ang susundin. */
+function entryTopOffense(e){
+  const list = entryOffenses(e);
+  if(!list.length) return null;
+  return list.slice().sort((a,b)=>
+    (GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)
+    || (a.src === 'do006' ? -1 : 1))[0];
+}
+
+/* Buuin ang teksto ng insidente mula sa napiling paglabag. */
+function composeIncidentText(codes, monthLines){
+  const lines = [];
+  (monthLines || []).forEach(l => lines.push(l));
+  codes.map(offenseByCode).filter(Boolean).forEach(o=>{
+    lines.push(`${o.code} — ${o.text.charAt(0).toLowerCase()}${o.text.slice(1)}`);
+  });
+  return lines.map(l => '• ' + l).join('\n');
+}
+
+/* Pangako ng mag-aaral, hango sa uri ng napiling paglabag. */
+const PROMISE_BY_CAT = {
+  minor: 'susunod na po ako sa patakaran ng paaralan at hindi ko na uulitin ang nagawa ko',
+  do1:   'susunod na po ako sa patakaran ng paaralan at hindi ko na uulitin ang nagawa ko',
+  major: 'pananagutan ko po ang aking nagawa, hindi ko na uulitin, at susunod na po ako sa alituntunin',
+  do2:   'pananagutan ko po ang aking nagawa, hindi ko na uulitin, at susunod na po ako sa alituntunin',
+  grave: 'lubos ko pong pinagsisisihan ang aking nagawa, pananagutan ko ito, at makikipagtulungan po ako sa anumang hakbang ng paaralan',
+  do3:   'lubos ko pong pinagsisisihan ang aking nagawa, pananagutan ko ito, at makikipagtulungan po ako sa anumang hakbang ng paaralan',
+  constitutional: 'pananagutan ko po ang aking nagawa at makikipagtulungan sa paaralan at sa nararapat na awtoridad'
+};
+
+function composePromise(codes){
+  const list = codes.map(offenseByCode).filter(Boolean);
+  if(!list.length) return '';
+  const top = list.slice().sort((a,b)=> GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)[0];
+  return PROMISE_BY_CAT[top.cat] || PROMISE_BY_CAT.minor;
+}
+
+/* Ang kahihinatnan, hango sa matrix — handbook o DO 006. */
+function composeConsequence(studentId, codes, idx){
+  const list = codes.map(offenseByCode).filter(Boolean);
+  if(!list.length) return '';
+  const top = list.slice().sort((a,b)=> GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)[0];
+  const steps = CONSEQUENCE[top.cat] || CONSEQUENCE.minor;
+  /* Ilang beses na sa antas na ito, hindi pa kasama ang kasalukuyan. */
+  const prior = (anecdotal[studentId] || []).filter((e, i)=>{
+    if(i === idx) return false;
+    const t = entryTopOffense(e);
+    return t && t.cat === top.cat;
+  }).length;
+  const nth = Math.min(prior + 1, steps.length);
+  const base = steps[nth - 1];
+  return `alam ko po na ang magiging hakbang ng paaralan ay: ${base}`;
 }
 
 /* =========================================================
@@ -11397,12 +11652,16 @@ function renderAnecList(filterSid){
       <div style="display:flex; gap:9px; align-items:baseline; flex-wrap:wrap;">
         <strong style="font-size:13.5px;">${escapeHtml(name)}</strong>
         <span style="font-size:11.5px; color:var(--ink-soft);">${escapeHtml(when)}</span>
-        ${(()=>{ const o = offenseByCode(e.category); const g = GRAVITY[(o||{}).cat || 'minor'];
-          const isDO = o && o.src === 'do006';
+        ${entryOffenses(e).map(o=>{
+          const g = GRAVITY[o.cat];
           return `<span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
-            background:${g.bg}; color:${g.c};">${g.label}${o ? ' ' + o.code : ''}</span>`
-            + (isDO ? `<span style="font-size:9.5px; font-weight:700; padding:2px 7px; border-radius:20px;
-                background:#e9f1f7; color:var(--male);">DO 006</span>` : ''); })()}
+            background:${g.bg}; color:${g.c};">${o.code}${o.src === 'do006' ? ' · DO 006' : ''}</span>`;
+        }).join('')}
+        ${(()=>{ const t = entryTopOffense(e); if(!t) return '';
+          const g = GRAVITY[t.cat];
+          return entryOffenses(e).length > 1
+            ? `<span style="font-size:9.5px; font-weight:700; padding:2px 7px; border-radius:20px;
+                background:${g.bg}; color:${g.c};">pinakamabigat: ${g.label}</span>` : ''; })()}
         <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
           background:#fbeeed; color:var(--danger);">${ordinalEng(anecOffenseNumber(s.id, idx))} offense</span>
         <div style="flex:1;"></div>
@@ -11474,7 +11733,18 @@ function openAnecDialog(studentId, idx){
     + '</optgroup>').join('');
 
   document.getElementById('anecDlgDate').value = entry ? entry.date : new Date().toISOString().slice(0,10);
-  catSel.value = entry ? entry.category : '1.1';
+  /* Napiling paglabag: suportado pa rin ang lumang talaan na iisa lang. */
+  anecPicked = entry
+    ? ((entry.categories && entry.categories.length) ? entry.categories.slice()
+       : (entry.category ? [entry.category] : []))
+    : [];
+  /* Kapag may laman nang naitala, huwag nang palitan ang sinulat ng guro. */
+  anecAuto = {
+    incident:    !entry || !(entry.incident || '').trim(),
+    promise:     !entry || !(entry.promise || '').trim(),
+    consequence: !entry || !(entry.consequence || '').trim()
+  };
+  catSel.value = (anecPicked[0]) || '1.1';
   document.getElementById('anecDlgIncident').value = entry ? (entry.incident || '') : '';
   document.getElementById('anecDlgPromise').value = entry ? (entry.promise || '') : '';
   document.getElementById('anecDlgConsequence').value = entry ? (entry.consequence || '') : '';
@@ -11509,8 +11779,7 @@ function openAnecDialog(studentId, idx){
   if(isAtt) anecRenderMonths(s, entry ? (entry.months || []) : openMonths(s));
   document.getElementById('anecDlgDelete').style.display = entry ? 'block' : 'none';
 
-  if(!entry) anecApplyCategoryDefaults();
-  anecRenderSuggest(s);
+  anecSyncTexts();
 
   const ov = document.getElementById('anecOverlay');
   ov.hidden = false; ov.style.display = 'flex';
@@ -11563,31 +11832,79 @@ function anecSelectedMonths(){
 
 /* Buuin ang paglalarawan mula sa napiling buwan — bullet kada buwan. */
 function anecSyncFromMonths(s){
-  const months = anecSelectedMonths();
-  const lines = monthBreakdownLines(s, months);
-  const box = document.getElementById('anecDlgIncident');
-  if(lines.length){
-    box.value = lines.map(l => '• ' + l).join('\n');
-  }
-  anecRenderMonths(s, months);
-  anecRenderSuggest(s);
+  anecRenderMonths(s, anecSelectedMonths());
+  anecSyncTexts();
 }
 
-function anecApplyCategoryDefaults(){
-  const o = offenseByCode(document.getElementById('anecDlgCategory').value);
-  if(!o) return;
-  const set = (id, val) => {
-    const el = document.getElementById(id);
-    if(!el.value.trim()) el.value = val;
-  };
-  /* Ang teksto ng paglabag ay galing mismo sa handbook. */
-  set('anecDlgIncident', `${o.text.charAt(0).toLowerCase()}${o.text.slice(1)} (${o.code})`);
-  set('anecDlgPromise', 'hindi ko na po uulitin ang nagawa ko at susunod na po ako sa patakaran ng paaralan');
-  const g = GRAVITY[o.cat];
-  set('anecDlgConsequence', g.rank >= 3
-    ? 'isasangguni po ang usapin sa School Discipline Committee at sa Guidance Office'
-    : 'ipatatawag po ang aking magulang at isasangguni sa School Discipline Committee');
+/* ---- napiling paglabag sa kasalukuyang dialog ---- */
+let anecPicked = [];        // mga code
+let anecAuto = { incident:true, promise:true, consequence:true };
+
+function anecRenderChips(){
+  const host = document.getElementById('anecOffChips');
+  if(!anecPicked.length){
+    host.innerHTML = '<span style="font-size:11.5px; color:var(--danger);">Wala pang napiling paglabag.</span>';
+    return;
+  }
+  host.innerHTML = anecPicked.map(code=>{
+    const o = offenseByCode(code);
+    const g = GRAVITY[(o || {}).cat || 'minor'];
+    return `<span style="display:inline-flex; align-items:center; gap:6px; font-size:11px;
+        font-weight:600; padding:3px 8px; border-radius:20px; background:${g.bg}; color:${g.c};
+        border:1px solid ${g.c}33;">
+      ${escapeHtml(code)}${o && o.src === 'do006' ? ' · DO 006' : ''}
+      <button type="button" data-rmoff="${escapeHtml(code)}" title="Alisin"
+        style="border:0; background:none; color:${g.c}; cursor:pointer; font-size:13px; line-height:1; padding:0;">×</button>
+    </span>`;
+  }).join('');
+  host.querySelectorAll('[data-rmoff]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      anecPicked = anecPicked.filter(x => x !== b.dataset.rmoff);
+      anecSyncTexts();
+    });
+  });
 }
+
+/* Awtomatikong pinupunan ang tatlong kahon mula sa napiling paglabag.
+   Humihinto ito kapag may sarili nang sinulat ang guro. */
+function anecSyncTexts(){
+  anecRenderChips();
+  const s = students.find(x => x.id === anecDlgSid);
+  const months = anecSelectedMonths();
+  const monthLines = (s && months.length) ? monthBreakdownLines(s, months) : [];
+
+  if(anecAuto.incident){
+    document.getElementById('anecDlgIncident').value =
+      composeIncidentText(anecPicked, monthLines);
+  }
+  if(anecAuto.promise){
+    document.getElementById('anecDlgPromise').value = composePromise(anecPicked);
+  }
+  if(anecAuto.consequence && s){
+    document.getElementById('anecDlgConsequence').value =
+      composeConsequence(s.id, anecPicked, anecDlgIdx);
+  }
+
+  /* Saklaw na buwan — lumalabas kapag may paglabag sa pagpasok. */
+  const isAtt = anecPicked.includes('1.1');
+  document.getElementById('anecMonthsWrap').style.display = isAtt ? 'block' : 'none';
+  if(isAtt && s && !document.getElementById('anecMonths').innerHTML) anecRenderMonths(s, openMonths(s));
+
+  /* Mungkahing aksyon ayon sa pinakamabigat. */
+  if(s && anecPicked.length){
+    const top = entryTopOffense({ categories: anecPicked });
+    if(top){
+      const prior = (anecdotal[s.id] || []).filter((e,i)=>{
+        if(i === anecDlgIdx) return false;
+        const t = entryTopOffense(e);
+        return t && t.cat === top.cat;
+      }).length;
+      document.getElementById('anecDlgAction').value = suggestedAction(top.cat, prior + 1);
+    }
+  }
+  if(s) anecRenderSuggest(s);
+}
+
 
 function anecRenderSuggest(s){
   const host = document.getElementById('anecDlgSuggest');
@@ -11679,14 +11996,22 @@ function anecDocxSetParagraph(xml, index, text){
     if(!sid){ showToast('Pumili muna ng mag-aaral sa itaas.', true); return; }
     anecFromAttendance(sid);
   });
+  const addOffense = ()=>{
+    const code = document.getElementById('anecDlgCategory').value;
+    if(!code || anecPicked.includes(code)) return;
+    anecPicked.push(code);
+    anecSyncTexts();
+  };
+  document.getElementById('anecDlgAddOff').addEventListener('click', addOffense);
+  /* Ang unang pagpili ay agad na naidadagdag; ang susunod ay sa + button. */
   document.getElementById('anecDlgCategory').addEventListener('change', ()=>{
-    anecApplyCategoryDefaults();
-    const st = students.find(x => x.id === anecDlgSid);
-    if(!st) return;
-    const isAtt = document.getElementById('anecDlgCategory').value === '1.1';
-    document.getElementById('anecMonthsWrap').style.display = isAtt ? 'block' : 'none';
-    if(isAtt) anecRenderMonths(st, openMonths(st));
-    anecRenderSuggest(st);
+    if(anecPicked.length <= 1){ anecPicked = []; addOffense(); }
+  });
+
+  /* Kapag may sinulat ang guro, huminto na ang awtomatikong pagpuno. */
+  ['incident','promise','consequence'].forEach(k=>{
+    const el = document.getElementById('anecDlg' + k.charAt(0).toUpperCase() + k.slice(1));
+    if(el) el.addEventListener('input', ()=>{ anecAuto[k] = false; });
   });
   document.getElementById('anecDlgLrp').addEventListener('change', anecLrpRefresh);
   document.getElementById('anecDlgLrpType').addEventListener('change', anecLrpRefresh);
@@ -11707,7 +12032,10 @@ function anecDocxSetParagraph(xml, index, text){
     if(!anecDlgSid) return;
     const entry = {
       date:        document.getElementById('anecDlgDate').value,
-      category:    document.getElementById('anecDlgCategory').value,
+      categories:  anecPicked.slice(),
+      /* Ang pinakamabigat ang nananatiling pangunahing code, para gumana
+         pa rin ang mga lumang bahagi ng sistema. */
+      category:    (entryTopOffense({ categories: anecPicked }) || {}).code || anecPicked[0] || '',
       action:      document.getElementById('anecDlgAction').value,
       months:      anecSelectedMonths(),
       lrp:          document.getElementById('anecDlgLrp').checked,
@@ -11722,6 +12050,7 @@ function anecDocxSetParagraph(xml, index, text){
       at:          Date.now()
     };
     if(!entry.date){ showToast('Kailangan ng petsa.', true); return; }
+    if(!anecPicked.length){ showToast('Pumili ng kahit isang paglabag.', true); return; }
     if(!entry.incident){ showToast('Isulat kung ano ang nangyari.', true); return; }
     /* Ang pangalan ng magulang ay naitatala sa mag-aaral, hindi sa insidente —
        para isang beses lang itong itatype at magamit sa susunod. */
@@ -12006,6 +12335,8 @@ function renderSeatPool(isAtt){
   document.getElementById('seatCols').addEventListener('change', (e)=>{
     seatPlan.cols = parseInt(e.target.value); saveSeatPlan(); renderSeatPlan();
   });
+  const pdSel = document.getElementById('pdDay');
+  if(pdSel) pdSel.addEventListener('change', renderPeriodBreakdown);
   document.getElementById('seatAisle').addEventListener('change', (e)=>{
     seatPlan.aisleMode = e.target.value;
     if(e.target.value === 'manual' && !seatPlan.aisles) seatPlan.aisles = [];
