@@ -801,7 +801,47 @@
         placeholder="Hal.: ipatatawag po ang aking magulang at isasangguni sa School Discipline Committee."></textarea>
     </div>
 
-    <div class="field">
+    <div class="field" style="border:1px solid var(--gold-soft); background:#fdfaf1;
+      border-radius:var(--radius); padding:11px 12px;">
+      <label style="margin:0;"><input type="checkbox" id="anecDlgLrp" style="width:auto; margin-right:6px;">
+        <strong>Usapin ito ng proteksyon ng bata (LRP)</strong></label>
+      <div style="font-size:10.5px; color:var(--ink-soft); margin-top:3px; line-height:1.6;">
+        Bullying, gender-based violence, pang-aabuso, at iba pang Learner Rights Protection concern.
+        <strong>Hindi ito dumadaan sa School Discipline Committee</strong> — may sariling daloy ayon sa
+        DepEd Order 006, s. 2026, at may 48 oras para maisangguni.
+      </div>
+      <div id="anecLrpBox" style="display:none; margin-top:10px;">
+        <label>Uri ng usapin</label>
+        <select id="anecDlgLrpType"></select>
+        <div id="anecLrpRefs" style="font-size:10.5px; color:var(--ink-soft); margin-top:3px;"></div>
+
+        <div class="grid g2" style="margin-top:10px;">
+          <div class="field" style="margin:0;">
+            <label>Petsa ng pagkatanggap ng ulat</label>
+            <input type="date" id="anecDlgLrpReceived">
+            <div style="font-size:10px; color:var(--ink-soft); margin-top:3px;">
+              Dito nagsisimula ang 48 oras — hindi sa petsa ng pangyayari.
+            </div>
+          </div>
+          <div class="field" style="margin:0;">
+            <label>Petsa ng pagsangguni</label>
+            <input type="date" id="anecDlgLrpReferred">
+            <div style="font-size:10px; color:var(--ink-soft); margin-top:3px;">
+              Iwanang blangko hangga't hindi pa naisasangguni.
+            </div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:10px;">
+          <label>Kanino isinangguni (Disciplining Authority)</label>
+          <input type="text" id="anecDlgLrpTo" placeholder="Hal.: Gng. Santos, School Head / Child Protection Committee">
+        </div>
+
+        <div id="anecLrpSteps" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <div class="field" id="anecActionWrap">
       <label>Aksyong ginawa (Offenses and Consequences)</label>
       <select id="anecDlgAction"></select>
       <div id="anecActionHint" style="font-size:10.5px; color:var(--ink-soft); margin-top:3px;"></div>
@@ -1747,6 +1787,8 @@
         <h2><span class="num">2</span> Kalagayan ng mag-aaral</h2>
         <div id="anecContext"></div>
       </div>
+
+      <div id="lrpAlert"></div>
 
       <div class="card" id="protoCard">
         <h2><span class="num">&#128483;</span> Ulat mula sa Protocol Officer</h2>
@@ -10088,6 +10130,100 @@ function renderEcAnalysis(){
 }
 
 /* =========================================================
+   LEARNER RIGHTS PROTECTION — DepEd Order 006, s. 2026
+   Ang mga usaping ito ay HINDI dumadaan sa School Discipline
+   Committee. May sariling daloy sila (Annex A, B, C) at may
+   takdang 48 oras para maisangguni sa Disciplining Authority.
+   ========================================================= */
+const LRP_TYPES = [
+  { k:'adult',     annex:'A', label:'Adult to Learner',
+    desc:'Ginawa ng nakatatanda sa bata — guro, kawani, o sinumang nasa hustong gulang.',
+    refs:'RA 7610; DO 40, s. 2012; RA 11313' },
+  { k:'learner',   annex:'B', label:'Learner to Learner',
+    desc:'Bullying — physical, social, verbal, cyber, gender-based, o psychological/emotional.',
+    refs:'RA 11930; DO 18, s. 2015; Revised IRR ng Anti-Bullying Act of 2013' },
+  { k:'community', annex:'C', label:'Learner to Community',
+    desc:'May kinalaman sa labas ng paaralan o sa pamayanan.',
+    refs:'DO 006, s. 2026, Annex C' }
+];
+function lrpType(k){ return LRP_TYPES.find(x=>x.k===k) || null; }
+
+/* Ang hakbang ayon sa Annex B — pareho ang balangkas sa A at C. */
+const LRP_STEPS = [
+  { k:'report',     label:'Report to School Authorities' },
+  { k:'level',      label:'Identification of Level of Discipline (First / Second / Third)' },
+  { k:'intake',     label:'Intake Sheet at Incident Report' },
+  { k:'parents',    label:'Ipaalam sa magulang o tagapangalaga, nakasulat' },
+  { k:'investigate',label:'Formal Investigation Stage (Second / Third Level)' },
+  { k:'mhpss',      label:'Psychological First Aid at MHPSS / guidance counseling' },
+  { k:'monitor',    label:'Incident Monitoring — bantayan ang kalagayan ng imbestigasyon' },
+  { k:'escalate',   label:'Kung nagpatuloy: isangguni sa Learner Formation Officer' },
+  { k:'crime',      label:'Kung naging krimen: LSWDO, PNP-WCPD, o PNP-Anti Cyber Crime Unit' }
+];
+
+const LRP_DEADLINE_HOURS = 48;
+
+/* Ang orasan ay nagsisimula sa PAGKATANGGAP ng ulat, hindi sa
+   petsa ng pangyayari — 'yan ang nakasaad sa DO. */
+function lrpClock(e){
+  if(!e || !e.lrp) return null;
+  const base = e.lrpReceived || e.date;
+  if(!base) return null;
+  const start = new Date(base + 'T00:00:00');
+  if(isNaN(start)) return null;
+  const due = new Date(start.getTime() + LRP_DEADLINE_HOURS * 3600 * 1000);
+  if(e.lrpReferredAt){
+    const ref = new Date(e.lrpReferredAt + 'T00:00:00');
+    const late = !isNaN(ref) && ref > due;
+    return { state:'done', due, referred:ref, late };
+  }
+  const now = new Date();
+  const msLeft = due - now;
+  const hoursLeft = Math.round(msLeft / 3600000);
+  return {
+    state: msLeft < 0 ? 'overdue' : (hoursLeft <= 12 ? 'urgent' : 'open'),
+    due, hoursLeft
+  };
+}
+
+function lrpClockBadge(e){
+  const c = lrpClock(e);
+  if(!c) return '';
+  const fmt = d => d.toLocaleString('en-PH', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+  if(c.state === 'done'){
+    return c.late
+      ? `<span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
+          background:#f6efdc; color:#7a5c12;">Naisangguni — lampas sa 48 oras</span>`
+      : `<span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
+          background:#eaf5ee; color:var(--ok);">Naisangguni sa loob ng 48 oras</span>`;
+  }
+  const map = {
+    open:   { bg:'#e9f1f7', c:'var(--male)',   t:`${c.hoursLeft} oras na natitira` },
+    urgent: { bg:'#f6efdc', c:'#a3690a',       t:`${Math.max(0,c.hoursLeft)} oras na lang — isangguni na` },
+    overdue:{ bg:'#fbeeed', c:'var(--danger)', t:`LUMAMPAS na sa 48 oras (${fmt(c.due)})` }
+  };
+  const m = map[c.state];
+  return `<span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
+    background:${m.bg}; color:${m.c};">${m.t}</span>`;
+}
+
+/* Lahat ng LRP na hindi pa naisasangguni — para sa babala sa itaas. */
+function lrpPending(){
+  const out = [];
+  Object.keys(anecdotal).forEach(sid=>{
+    const s = students.find(x => x.id === sid);
+    if(!s) return;
+    (anecdotal[sid] || []).forEach((e, idx)=>{
+      if(!e.lrp || e.lrpReferredAt) return;
+      const c = lrpClock(e);
+      if(c) out.push({ s, e, idx, clock:c });
+    });
+  });
+  out.sort((a,b)=> a.clock.due - b.clock.due);
+  return out;
+}
+
+/* =========================================================
    PROTOCOL OFFICER — ulat ng minor offenses
    Estudyante rin ang officer, kaya minor offenses lamang ang
    saklaw niya at ULAT ang ipinapadala — hindi agad opisyal na
@@ -11015,6 +11151,76 @@ function renderProtoView(){
   wrap(document.getElementById('btnProtoRevoke'), protoRevoke);
 })();
 
+/* Ipinapakita ang daloy ng LRP, at itinatago ang matrix ng SDC —
+   mapanganib kung sabay silang lalabas, dahil magkaibang daan sila. */
+function anecLrpRefresh(){
+  const on = document.getElementById('anecDlgLrp').checked;
+  document.getElementById('anecLrpBox').style.display = on ? 'block' : 'none';
+  document.getElementById('anecActionWrap').style.display = on ? 'none' : 'block';
+
+  const sel = document.getElementById('anecDlgLrpType');
+  if(!sel.options.length){
+    sel.innerHTML = LRP_TYPES.map(t=>
+      `<option value="${t.k}">Annex ${t.annex} — ${escapeHtml(t.label)}</option>`).join('');
+  }
+  const t = lrpType(sel.value);
+  document.getElementById('anecLrpRefs').textContent = t ? `${t.desc}  (${t.refs})` : '';
+
+  if(on){
+    const rec = document.getElementById('anecDlgLrpReceived');
+    if(!rec.value) rec.value = document.getElementById('anecDlgDate').value || new Date().toISOString().slice(0,10);
+    document.getElementById('anecLrpSteps').innerHTML =
+      `<div style="background:#fff; border:1px solid var(--line); border-radius:7px; padding:10px 12px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--navy);
+          font-weight:700; margin-bottom:5px;">Daloy ayon sa DO 006, Annex ${t ? t.annex : 'B'}</div>
+        <ol style="margin:0; padding-left:18px; font-size:11.5px; line-height:1.75;">
+          ${LRP_STEPS.map(s=>`<li>${escapeHtml(s.label)}</li>`).join('')}
+        </ol>
+      </div>`;
+  }
+}
+
+/* Babala sa itaas ng Anecdotal: may LRP na hindi pa naisasangguni. */
+function renderLrpAlert(){
+  const host = document.getElementById('lrpAlert');
+  if(!host) return;
+  const pend = lrpPending();
+  if(!pend.length){ host.innerHTML = ''; return; }
+  const worst = pend[0].clock.state;
+  const lv = worst === 'overdue' ? { bg:'#fbeeed', bd:'#e2c6c2', c:'var(--danger)' }
+    : worst === 'urgent' ? { bg:'#f6efdc', bd:'#e3d3a4', c:'#a3690a' }
+    : { bg:'#e9f1f7', bd:'#c7dcf3', c:'var(--male)' };
+  host.innerHTML = `<div style="background:${lv.bg}; border:1px solid ${lv.bd}; border-radius:var(--radius);
+      padding:12px 14px; margin-bottom:14px;">
+    <div style="font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:${lv.c};
+      font-weight:700;">48 oras — hindi pa naisasangguni</div>
+    <div style="font-size:12px; color:var(--ink-soft); margin:5px 0 8px; line-height:1.65;">
+      Ayon sa DO 006, s. 2026: ang insidenteng may kinalaman sa proteksyon ng bata ay dapat
+      maisangguni sa Disciplining Authority sa loob ng 48 oras mula nang matanggap ang ulat.
+    </div>
+    ${pend.map(p=>{
+      const name = `${p.s.lastName || ''}, ${p.s.firstName || ''}`.replace(/^,\s*/,'').trim();
+      const t = lrpType(p.e.lrpType);
+      return `<div style="display:flex; gap:9px; align-items:center; flex-wrap:wrap;
+          background:#fff; border-radius:7px; padding:8px 10px; margin-bottom:5px;">
+        <strong style="font-size:12.5px;">${escapeHtml(name)}</strong>
+        <span style="font-size:11px; color:var(--ink-soft);">Annex ${t ? t.annex : '—'} &middot; ${escapeHtml(formsDate(p.e.lrpReceived || p.e.date))}</span>
+        ${lrpClockBadge(p.e)}
+        <div style="flex:1;"></div>
+        <button class="btn btn-sm" data-lrp-open="${p.s.id}:${p.idx}">Buksan</button>
+      </div>`;
+    }).join('')}
+  </div>`;
+  host.querySelectorAll('[data-lrp-open]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const [sid, idx] = b.dataset.lrpOpen.split(':');
+      document.getElementById('anecStudent').value = sid;
+      renderAnecdotalView();
+      openAnecDialog(sid, parseInt(idx));
+    });
+  });
+}
+
 function renderAnecdotalView(){
   const src = document.getElementById('letterhead');
   const lh = document.getElementById('anecLetterhead');
@@ -11058,6 +11264,7 @@ function renderAnecdotalView(){
 
   document.getElementById('protoEmail').value = setupData.protocolEmail || '';
   renderProtoView();
+  renderLrpAlert();
   renderAdmission(sid ? students.find(x=>x.id===sid) : null);
   renderAnecList(sid);
   renderFormsClassList();
@@ -11125,7 +11332,16 @@ function renderAnecList(filterSid){
         Saklaw: ${(e.months || []).map(m => m.charAt(0) + m.slice(1).toLowerCase()).join(', ')}</div>` : ''}
       ${e.incident ? `<div style="font-size:12.5px; margin-top:6px; white-space:pre-line;">${escapeHtml(e.incident)}</div>` : ''}
       ${e.notes ? `<div style="font-size:11.5px; color:var(--ink-soft); margin-top:4px; font-style:italic;">Tala: ${escapeHtml(e.notes)}</div>` : ''}
-      ${(()=>{ const r = offenseConsequence(s.id, idx);
+      ${e.lrp ? (()=>{ const t = lrpType(e.lrpType);
+        return `<div style="margin-top:7px; padding:9px 11px; background:#f3e9ef; border-left:3px solid #8e4a6b; border-radius:7px;">
+          <div style="font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:#8e4a6b; font-weight:700;">
+            Learner Rights Protection &middot; Annex ${t ? t.annex : '—'} &middot; ${t ? escapeHtml(t.label) : ''}</div>
+          <div style="font-size:11.5px; margin-top:3px; line-height:1.65;">
+            Hindi ito dumadaan sa School Discipline Committee. Sundin ang daloy ng DO 006, s. 2026.</div>
+          <div style="margin-top:5px;">${lrpClockBadge(e)}</div>
+          ${e.lrpReferredTo ? `<div style="font-size:11px; color:var(--ink-soft); margin-top:3px;">
+            Isinangguni kay ${escapeHtml(e.lrpReferredTo)}${e.lrpReferredAt ? ' noong ' + escapeHtml(formsDate(e.lrpReferredAt)) : ''}.</div>` : ''}
+        </div>`; })() : (()=>{ const r = offenseConsequence(s.id, idx);
         return `<div style="margin-top:7px; padding:8px 10px; background:var(--paper); border-radius:7px;">
           <div style="font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--navy); font-weight:700;">Nakatakdang hakbang &middot; ika-${r.tally.nth} ${GRAVITY[r.tally.cat].label.toLowerCase()}</div>
           <div style="font-size:12px; margin-top:2px;">${escapeHtml(r.text)}</div>
@@ -11180,6 +11396,18 @@ function openAnecDialog(studentId, idx){
   document.getElementById('anecDlgConsequence').value = entry ? (entry.consequence || '') : '';
   document.getElementById('anecDlgNotes').value = entry ? (entry.notes || '') : '';
   document.getElementById('anecDlgGuardian').value = s.guardian || '';
+
+  document.getElementById('anecDlgLrp').checked = !!(entry && entry.lrp);
+  const lrpSel = document.getElementById('anecDlgLrpType');
+  if(!lrpSel.options.length){
+    lrpSel.innerHTML = LRP_TYPES.map(t=>
+      `<option value="${t.k}">Annex ${t.annex} — ${escapeHtml(t.label)}</option>`).join('');
+  }
+  lrpSel.value = (entry && entry.lrpType) || 'learner';
+  document.getElementById('anecDlgLrpReceived').value = (entry && entry.lrpReceived) || '';
+  document.getElementById('anecDlgLrpReferred').value = (entry && entry.lrpReferredAt) || '';
+  document.getElementById('anecDlgLrpTo').value = (entry && entry.lrpReferredTo) || '';
+  anecLrpRefresh();
 
   /* Aksyong ginawa — mungkahi ayon sa antas at pang-ilang paglabag. */
   const actSel = document.getElementById('anecDlgAction');
@@ -11375,6 +11603,8 @@ function anecDocxSetParagraph(xml, index, text){
     if(isAtt) anecRenderMonths(st, openMonths(st));
     anecRenderSuggest(st);
   });
+  document.getElementById('anecDlgLrp').addEventListener('change', anecLrpRefresh);
+  document.getElementById('anecDlgLrpType').addEventListener('change', anecLrpRefresh);
   document.getElementById('anecDlgAction').addEventListener('change', ()=>{
     const a = ACTION_TAKEN.find(x => x.k === document.getElementById('anecDlgAction').value);
     document.getElementById('anecActionHint').textContent = a && a.cat
@@ -11395,6 +11625,11 @@ function anecDocxSetParagraph(xml, index, text){
       category:    document.getElementById('anecDlgCategory').value,
       action:      document.getElementById('anecDlgAction').value,
       months:      anecSelectedMonths(),
+      lrp:          document.getElementById('anecDlgLrp').checked,
+      lrpType:      document.getElementById('anecDlgLrpType').value,
+      lrpReceived:  document.getElementById('anecDlgLrpReceived').value,
+      lrpReferredAt:document.getElementById('anecDlgLrpReferred').value,
+      lrpReferredTo:document.getElementById('anecDlgLrpTo').value.trim(),
       incident:    document.getElementById('anecDlgIncident').value.trim(),
       promise:     document.getElementById('anecDlgPromise').value.trim(),
       consequence: document.getElementById('anecDlgConsequence').value.trim(),
