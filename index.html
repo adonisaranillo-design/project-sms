@@ -770,7 +770,14 @@
       </div>
       <div class="field">
         <label>Uri ng paglabag</label>
-        <select id="anecDlgCategory"></select>
+        <div style="display:flex; gap:6px;">
+          <select id="anecDlgCategory" style="flex:1; min-width:0;"></select>
+          <button class="btn btn-sm" id="anecDlgAddOff" type="button" style="flex:0 0 auto;">&#43;</button>
+        </div>
+        <div id="anecOffChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:7px;"></div>
+        <div style="font-size:10.5px; color:var(--ink-soft); margin-top:4px;">
+          Puwedeng magdagdag ng higit sa isa. Ang pinakamabigat ang susundin sa hakbang.
+        </div>
       </div>
     </div>
 
@@ -9704,10 +9711,11 @@ const FORM_DEFS = [
         return [
           formsDate(e.date),
           (o ? `${o.code} ${o.text}` : (e.incident || '')),
-          cat === 'minor' ? 'X' : '',
-          cat === 'major' ? 'X' : '',
-          (cat === 'grave' || cat === 'constitutional') ? 'X' : '',
-          cat === 'constitutional' ? 'Constitutional' : ''
+          (cat === 'minor' || cat === 'do1') ? 'X' : '',
+          (cat === 'major' || cat === 'do2') ? 'X' : '',
+          (cat === 'grave' || cat === 'constitutional' || cat === 'do3') ? 'X' : '',
+          (o && o.src === 'do006') ? 'DO 006, s. 2026'
+            : (cat === 'constitutional' ? 'Constitutional' : '')
         ];
       });
       return docxFillRows(xml, 0, 2, rows);
@@ -10237,8 +10245,12 @@ function protoDocId(){ return (currentUser && currentUser.uid) || ''; }
 
 /* Minor offenses lamang — ito ang nakikita at napapatunayan sa tingin. */
 function protoOffenseList(){
-  const g = OFFENSE_CATALOG.find(x => x.cat === 'minor');
-  return g ? g.items.map(([code, text])=>({ code, text })) : [];
+  /* Pinakamagaan lamang: minor ng handbook at First Level ng DO 006. */
+  const out = [];
+  allCatalogs().filter(g => g.cat === 'minor' || g.cat === 'do1').forEach(g=>{
+    g.items.forEach(([code, text])=> out.push({ code, text, group:g.label }));
+  });
+  return out;
 }
 
 async function protoPublish(){
@@ -10375,7 +10387,7 @@ const KASUNDUAN_B64 = "UEsDBBQABgAIAAAAIQDTJeI6xwEAAGMKAAATAAgCW0NvbnRlbnRfVHlwZ
    Mula rito kinukuha ang bigat at ang nararapat na hakbang.
    ========================================================= */
 const OFFENSE_CATALOG = [
-  { cat:'minor', label:'Minor Offenses', items:[
+  { cat:'minor', src:'handbook', label:'Minor Offenses', items:[
     ['1.1','Unexcused tardiness and absences / cutting classes'],
     ['1.2','Lending and borrowing of library cards and ID cards'],
     ['1.3','Using cellphones and other electronic gadgets during class periods'],
@@ -10400,7 +10412,7 @@ const OFFENSE_CATALOG = [
     ['1.22','Not giving a letter to parents'],
     ['1.23','Not reporting misconduct inside the school as stated in the handbook']
   ]},
-  { cat:'major', label:'Major Offenses', items:[
+  { cat:'major', src:'handbook', label:'Major Offenses', items:[
     ['1.24','Littering inside the school campus, especially the classroom and corridors'],
     ['1.25','Jumping over the fence'],
     ['1.26','Urinating elsewhere or in inappropriate places'],
@@ -10427,7 +10439,7 @@ const OFFENSE_CATALOG = [
     ['1.47','Disrespect for the national flag and the singing of the national anthem'],
     ['1.48',"Staying within the school premises beyond class hours without the teacher's written permission"]
   ]},
-  { cat:'grave', label:'Grave Offenses', items:[
+  { cat:'grave', src:'handbook', label:'Grave Offenses', items:[
     ['1.49','Immoral, indecent acts, or sexual harassment'],
     ['1.50','Fighting or assaulting fellow students and school authorities'],
     ['1.51','Bullying in any form, including cyberbullying'],
@@ -10441,16 +10453,81 @@ const OFFENSE_CATALOG = [
     ['1.59','Playing with combustible or harmful materials that can harm others or damage property'],
     ['1.60','Frequent and continued disregard of school rules and regulations']
   ]},
-  { cat:'constitutional', label:'Constitutional Offense', items:[
+  { cat:'constitutional', src:'handbook', label:'Constitutional Offense', items:[
     ['1.61','Possessing, using, and selling prohibited drugs']
   ]}
 ];
+
+/* =========================================================
+   DepEd Order 006, s. 2026 — Annex I
+   Classification of Offenses and Penalties for NON-BULLYING
+   related incidents. Hiwalay ito sa handbook ng paaralan:
+   pambansang patakaran, at iba ang hagdan ng parusa.
+   ========================================================= */
+const DO006_CATALOG = [
+  { cat:'do1', src:'do006', label:'DO 006 — First Level', items:[
+    ['D1.1','Uttering profanities or swearwords sa paaralan, online, o sa school activity'],
+    ['D1.2','Sharing fake news o maling impormasyon na nagdudulot ng gulo'],
+    ['D1.3','Disruptive behavior o prank sa klase o sa school activity'],
+    ['D1.4','Grabbing other\u2019s belongings sa silid o sa paaralan'],
+    ['D1.5','Simple vandalism \u2014 pinsalang hindi hihigit sa Php 500'],
+    ['D1.6','Punching o pinching na walang naging pinsala sa katawan'],
+    ['D1.7','Pigging o pangungulit sa klase na walang naging pinsala'],
+    ['D1.8','Carrying o concealing ng liquor, toxic substances, cigarettes, vape, o pornographic materials']
+  ]},
+  { cat:'do2', src:'do006', label:'DO 006 — Second Level', items:[
+    ['D2.1','Stalking sa silid, paaralan, o sa school activity'],
+    ['D2.2','Assaulting o slight physical injuries \u2014 medical intervention ng 1 hanggang 9 araw'],
+    ['D2.3','Theft o pagnanakaw ng gamit ng iba'],
+    ['D2.4','Intimidating o threatening sa kawani o kapwa mag-aaral, pati online'],
+    ['D2.5','Gambling o pagdadala ng gambling materials'],
+    ['D2.6','Smoking cigarettes, e-cigarettes, o vape sa loob ng paaralan'],
+    ['D2.7','Serious vandalism \u2014 pinsalang higit sa Php 500'],
+    ['D2.8','Offensive physical o body gestures, exposing private parts, lewd sexual actions']
+  ]},
+  { cat:'do3', src:'do006', label:'DO 006 — Third Level', items:[
+    ['D3.1','Joining, organizing, o recruiting sa fraternity, sorority, o street gang'],
+    ['D3.2','Cheating o dishonesty sa assessment o exam, pati sagot for sale'],
+    ['D3.3','Making bomb threats o bomb jokes'],
+    ['D3.4','Serious physical injuries \u2014 medical intervention ng 10 araw pataas'],
+    ['D3.5','Use, possession, o sale ng prohibited drugs o substances'],
+    ['D3.6','Drinking liquor sa paaralan o pagpasok nang lasing'],
+    ['D3.7','Acts of lasciviousness o lewd sexual actions'],
+    ['D3.8','Sexual exploitation, sexual assault, o rape'],
+    ['D3.9','Carrying o concealing ng deadly weapons \u2014 baril, bala, pampasabog, patalim'],
+    ['D3.10','Homicide o murder; hazing sa anumang anyo'],
+    ['D3.11','Uploading o sharing ng video na nagpapahiya sa kapwa mag-aaral o kawani'],
+    ['D3.12','Uploading o sharing ng video, larawan, o boses na may sexual content']
+  ]}
+];
+
+/* Parusa ayon sa Annex I — iba ito sa matrix ng handbook. */
+const DO006_PENALTY = {
+  do1: [
+    'Written reprimand at parental notice sa pamamagitan ng pormal na komunikasyon',
+    'Written reprimand at pagpapatawag sa magulang gamit ang Call Slip (Annex K)',
+    'Suspension at iba pang hakbang ayon sa paaralan'
+  ],
+  do2: [
+    'Suspension na hindi hihigit sa 5 araw, may alternative learning modalities, at referral sa Social Welfare Development Office',
+    'Non-readmission at referral sa Social Welfare Development Office',
+    'Exclusion at referral sa Social Welfare Development Office'
+  ],
+  do3: [
+    'Non-readmission at referral sa nararapat na tanggapan (hal. PNP, Social Welfare Development Office)',
+    'Exclusion at referral sa nararapat na tanggapan (hal. PNP, Social Welfare Development Office)',
+    'Exclusion at referral sa nararapat na tanggapan'
+  ]
+};
 
 const GRAVITY = {
   minor:          { label:'Minor',          c:'#7a5c12', bg:'#f6efdc', rank:1 },
   major:          { label:'Major',          c:'#b8433a', bg:'#fbeeed', rank:2 },
   grave:          { label:'Grave',          c:'#9e2f27', bg:'#f8e5e3', rank:3 },
-  constitutional: { label:'Constitutional', c:'#7d241e', bg:'#f5dcda', rank:4 }
+  constitutional: { label:'Constitutional', c:'#7d241e', bg:'#f5dcda', rank:4 },
+  do1:            { label:'DO 006 First Level',  c:'#2f6690', bg:'#e9f1f7', rank:1 },
+  do2:            { label:'DO 006 Second Level', c:'#b8433a', bg:'#fbeeed', rank:2 },
+  do3:            { label:'DO 006 Third Level',  c:'#7d241e', bg:'#f5dcda', rank:3 }
 };
 
 /* Matrix ng kahihinatnan — Article XI ng handbook. */
@@ -10477,16 +10554,24 @@ const CONSEQUENCE = {
   constitutional: [
     'c/o Classroom adviser kasama ang SDC. Ilipat sa ibang paaralan sa loob ng kasalukuyang school year, '
       + 'may referral sa nararapat na awtoridad'
-  ]
+  ],
+  do1: DO006_PENALTY.do1,
+  do2: DO006_PENALTY.do2,
+  do3: DO006_PENALTY.do3
 };
 
 /* Hanapin ang paglabag ayon sa code. */
+function allCatalogs(){ return OFFENSE_CATALOG.concat(DO006_CATALOG); }
+
 function offenseByCode(code){
-  for(const g of OFFENSE_CATALOG){
+  for(const g of allCatalogs()){
     const hit = g.items.find(x => x[0] === code);
-    if(hit) return { code:hit[0], text:hit[1], cat:g.cat };
+    if(hit) return { code:hit[0], text:hit[1], cat:g.cat, src:g.src, group:g.label };
   }
   return null;
+}
+function offenseSourceLabel(src){
+  return src === 'do006' ? 'DepEd Order 006, s. 2026' : 'Student Handbook, Article XI';
 }
 /* Pansamantalang panatilihin ang lumang tawag para sa mga naunang talaan. */
 function anecCategory(code){
@@ -10501,10 +10586,10 @@ function offenseTally(studentId, uptoIdx){
   const list = (anecdotal[studentId] || []).map((e, i)=> ({ e, i }));
   list.sort((a,b)=> (a.e.date || '').localeCompare(b.e.date || '')
     || (a.e.at || 0) - (b.e.at || 0));
-  const counts = { minor:0, major:0, grave:0, constitutional:0 };
+  const counts = { minor:0, major:0, grave:0, constitutional:0, do1:0, do2:0, do3:0 };
   let result = null;
   for(const { e, i } of list){
-    const o = offenseByCode(e.category);
+    const o = entryTopOffense(e);
     const cat = o ? o.cat : 'minor';
     counts[cat]++;
     if(i === uptoIdx){
@@ -10702,6 +10787,74 @@ function admissionSummary(s){
 }
 
 /* =========================================================
+   MARAMIHANG PAGLABAG SA IISANG INSIDENTE
+   Puwedeng magsabay ang minor at major. Ang pinakamabigat
+   ang nagtatakda ng hakbang — hindi ang una mong napili.
+   ========================================================= */
+
+/* Mga paglabag ng isang talaan. Sinusuportahan ang lumang
+   anyo na iisa lang ang code. */
+function entryOffenses(e){
+  const codes = (e && e.categories && e.categories.length)
+    ? e.categories : (e && e.category ? [e.category] : []);
+  return codes.map(offenseByCode).filter(Boolean);
+}
+
+/* Ang pinakamabigat sa mga napili — ito ang susundin. */
+function entryTopOffense(e){
+  const list = entryOffenses(e);
+  if(!list.length) return null;
+  return list.slice().sort((a,b)=>
+    (GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)
+    || (a.src === 'do006' ? -1 : 1))[0];
+}
+
+/* Buuin ang teksto ng insidente mula sa napiling paglabag. */
+function composeIncidentText(codes, monthLines){
+  const lines = [];
+  (monthLines || []).forEach(l => lines.push(l));
+  codes.map(offenseByCode).filter(Boolean).forEach(o=>{
+    lines.push(`${o.code} — ${o.text.charAt(0).toLowerCase()}${o.text.slice(1)}`);
+  });
+  return lines.map(l => '• ' + l).join('\n');
+}
+
+/* Pangako ng mag-aaral, hango sa uri ng napiling paglabag. */
+const PROMISE_BY_CAT = {
+  minor: 'susunod na po ako sa patakaran ng paaralan at hindi ko na uulitin ang nagawa ko',
+  do1:   'susunod na po ako sa patakaran ng paaralan at hindi ko na uulitin ang nagawa ko',
+  major: 'pananagutan ko po ang aking nagawa, hindi ko na uulitin, at susunod na po ako sa alituntunin',
+  do2:   'pananagutan ko po ang aking nagawa, hindi ko na uulitin, at susunod na po ako sa alituntunin',
+  grave: 'lubos ko pong pinagsisisihan ang aking nagawa, pananagutan ko ito, at makikipagtulungan po ako sa anumang hakbang ng paaralan',
+  do3:   'lubos ko pong pinagsisisihan ang aking nagawa, pananagutan ko ito, at makikipagtulungan po ako sa anumang hakbang ng paaralan',
+  constitutional: 'pananagutan ko po ang aking nagawa at makikipagtulungan sa paaralan at sa nararapat na awtoridad'
+};
+
+function composePromise(codes){
+  const list = codes.map(offenseByCode).filter(Boolean);
+  if(!list.length) return '';
+  const top = list.slice().sort((a,b)=> GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)[0];
+  return PROMISE_BY_CAT[top.cat] || PROMISE_BY_CAT.minor;
+}
+
+/* Ang kahihinatnan, hango sa matrix — handbook o DO 006. */
+function composeConsequence(studentId, codes, idx){
+  const list = codes.map(offenseByCode).filter(Boolean);
+  if(!list.length) return '';
+  const top = list.slice().sort((a,b)=> GRAVITY[b.cat].rank - GRAVITY[a.cat].rank)[0];
+  const steps = CONSEQUENCE[top.cat] || CONSEQUENCE.minor;
+  /* Ilang beses na sa antas na ito, hindi pa kasama ang kasalukuyan. */
+  const prior = (anecdotal[studentId] || []).filter((e, i)=>{
+    if(i === idx) return false;
+    const t = entryTopOffense(e);
+    return t && t.cat === top.cat;
+  }).length;
+  const nth = Math.min(prior + 1, steps.length);
+  const base = steps[nth - 1];
+  return `alam ko po na ang magiging hakbang ng paaralan ay: ${base}`;
+}
+
+/* =========================================================
    AKSYONG GINAWA — mula sa Offenses and Consequences
    ng Student Handbook. Naitatala kada insidente, kaya
    makikita kung saan na ang bata sa hagdan ng disiplina.
@@ -10728,6 +10881,8 @@ function actionLabel(k){
 }
 /* Ang mungkahing aksyon ayon sa antas at pang-ilang paglabag. */
 function suggestedAction(cat, nth){
+  /* Ang DO 006 ay may sariling parusa — hindi ito mula sa handbook. */
+  if(cat === 'do1' || cat === 'do2' || cat === 'do3') return 'other';
   const hit = ACTION_TAKEN.find(a => a.cat === cat && a.nth === Math.min(nth, 3));
   if(hit) return hit.k;
   if(cat === 'grave') return nth >= 2 ? 'transfer' : 'iact';
@@ -11318,8 +11473,11 @@ function renderAnecList(filterSid){
         <strong style="font-size:13.5px;">${escapeHtml(name)}</strong>
         <span style="font-size:11.5px; color:var(--ink-soft);">${escapeHtml(when)}</span>
         ${(()=>{ const o = offenseByCode(e.category); const g = GRAVITY[(o||{}).cat || 'minor'];
+          const isDO = o && o.src === 'do006';
           return `<span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
-            background:${g.bg}; color:${g.c};">${g.label}${o ? ' ' + o.code : ''}</span>`; })()}
+            background:${g.bg}; color:${g.c};">${g.label}${o ? ' ' + o.code : ''}</span>`
+            + (isDO ? `<span style="font-size:9.5px; font-weight:700; padding:2px 7px; border-radius:20px;
+                background:#e9f1f7; color:var(--male);">DO 006</span>` : ''); })()}
         <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
           background:#fbeeed; color:var(--danger);">${ordinalEng(anecOffenseNumber(s.id, idx))} offense</span>
         <div style="flex:1;"></div>
@@ -11384,8 +11542,9 @@ function openAnecDialog(studentId, idx){
   document.getElementById('anecDlgName').textContent = name;
 
   const catSel = document.getElementById('anecDlgCategory');
-  catSel.innerHTML = OFFENSE_CATALOG.map(g=>
-    `<optgroup label="${escapeHtml(g.label)}">`
+  /* Hiwalay ang dalawang pinagmulan — magkaiba ang hagdan ng parusa. */
+  catSel.innerHTML = allCatalogs().map(g=>
+    `<optgroup label="${g.src === 'do006' ? '▸ ' : ''}${escapeHtml(g.label)}">`
     + g.items.map(([code, text])=>`<option value="${code}">${code} — ${escapeHtml(text)}</option>`).join('')
     + '</optgroup>').join('');
 
@@ -11489,21 +11648,75 @@ function anecSyncFromMonths(s){
   anecRenderSuggest(s);
 }
 
-function anecApplyCategoryDefaults(){
-  const o = offenseByCode(document.getElementById('anecDlgCategory').value);
-  if(!o) return;
-  const set = (id, val) => {
-    const el = document.getElementById(id);
-    if(!el.value.trim()) el.value = val;
-  };
-  /* Ang teksto ng paglabag ay galing mismo sa handbook. */
-  set('anecDlgIncident', `${o.text.charAt(0).toLowerCase()}${o.text.slice(1)} (${o.code})`);
-  set('anecDlgPromise', 'hindi ko na po uulitin ang nagawa ko at susunod na po ako sa patakaran ng paaralan');
-  const g = GRAVITY[o.cat];
-  set('anecDlgConsequence', g.rank >= 3
-    ? 'isasangguni po ang usapin sa School Discipline Committee at sa Guidance Office'
-    : 'ipatatawag po ang aking magulang at isasangguni sa School Discipline Committee');
+/* ---- napiling paglabag sa kasalukuyang dialog ---- */
+let anecPicked = [];        // mga code
+let anecAuto = { incident:true, promise:true, consequence:true };
+
+function anecRenderChips(){
+  const host = document.getElementById('anecOffChips');
+  if(!anecPicked.length){
+    host.innerHTML = '<span style="font-size:11.5px; color:var(--danger);">Wala pang napiling paglabag.</span>';
+    return;
+  }
+  host.innerHTML = anecPicked.map(code=>{
+    const o = offenseByCode(code);
+    const g = GRAVITY[(o || {}).cat || 'minor'];
+    return `<span style="display:inline-flex; align-items:center; gap:6px; font-size:11px;
+        font-weight:600; padding:3px 8px; border-radius:20px; background:${g.bg}; color:${g.c};
+        border:1px solid ${g.c}33;">
+      ${escapeHtml(code)}${o && o.src === 'do006' ? ' · DO 006' : ''}
+      <button type="button" data-rmoff="${escapeHtml(code)}" title="Alisin"
+        style="border:0; background:none; color:${g.c}; cursor:pointer; font-size:13px; line-height:1; padding:0;">×</button>
+    </span>`;
+  }).join('');
+  host.querySelectorAll('[data-rmoff]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      anecPicked = anecPicked.filter(x => x !== b.dataset.rmoff);
+      anecSyncTexts();
+    });
+  });
 }
+
+/* Awtomatikong pinupunan ang tatlong kahon mula sa napiling paglabag.
+   Humihinto ito kapag may sarili nang sinulat ang guro. */
+function anecSyncTexts(){
+  anecRenderChips();
+  const s = students.find(x => x.id === anecDlgSid);
+  const months = anecSelectedMonths();
+  const monthLines = (s && months.length) ? monthBreakdownLines(s, months) : [];
+
+  if(anecAuto.incident){
+    document.getElementById('anecDlgIncident').value =
+      composeIncidentText(anecPicked, monthLines);
+  }
+  if(anecAuto.promise){
+    document.getElementById('anecDlgPromise').value = composePromise(anecPicked);
+  }
+  if(anecAuto.consequence && s){
+    document.getElementById('anecDlgConsequence').value =
+      composeConsequence(s.id, anecPicked, anecDlgIdx);
+  }
+
+  /* Saklaw na buwan — lumalabas kapag may paglabag sa pagpasok. */
+  const isAtt = anecPicked.includes('1.1');
+  document.getElementById('anecMonthsWrap').style.display = isAtt ? 'block' : 'none';
+  if(isAtt && s && !document.getElementById('anecMonths').innerHTML) anecRenderMonths(s, openMonths(s));
+
+  /* Mungkahing aksyon ayon sa pinakamabigat. */
+  if(s && anecPicked.length){
+    const top = entryTopOffense({ categories: anecPicked });
+    if(top){
+      const prior = (anecdotal[s.id] || []).filter((e,i)=>{
+        if(i === anecDlgIdx) return false;
+        const t = entryTopOffense(e);
+        return t && t.cat === top.cat;
+      }).length;
+      document.getElementById('anecDlgAction').value = suggestedAction(top.cat, prior + 1);
+    }
+  }
+  if(s) anecRenderSuggest(s);
+}
+
 
 function anecRenderSuggest(s){
   const host = document.getElementById('anecDlgSuggest');
@@ -11519,7 +11732,8 @@ function anecRenderSuggest(s){
     const nth = prior + (anecDlgIdx === null || anecDlgIdx === undefined ? 1 : 0);
     const steps = CONSEQUENCE[o.cat] || CONSEQUENCE.minor;
     const g = GRAVITY[o.cat];
-    bits.unshift(`<strong style="color:${g.c};">${g.label} offense</strong> — `
+    bits.unshift(`<strong style="color:${g.c};">${g.label}</strong> `
+      + `<span style="font-size:10.5px; color:var(--ink-soft);">(${escapeHtml(offenseSourceLabel(o.src))})</span> — `
       + `ika-${Math.max(1, nth)} sa antas na ito. Nakatakdang hakbang: `
       + escapeHtml(steps[Math.min(Math.max(1, nth), steps.length) - 1]));
   }
