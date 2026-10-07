@@ -1748,6 +1748,25 @@
         <div id="anecContext"></div>
       </div>
 
+      <div class="card" id="protoCard">
+        <h2><span class="num">&#128483;</span> Ulat mula sa Protocol Officer</h2>
+        <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
+          Estudyante rin ang officer, kaya <strong>minor offenses lamang</strong> ang saklaw niya —
+          uniform, ID, gadget, at iba pang nakikita sa tingin. <strong>Ulat</strong> ang ipinapadala
+          niya, hindi opisyal na talaan: kapag inaprubahan mo, saka lang ito nagiging insidente dito.
+          Ang major at grave ay hindi niya maaabot.
+        </p>
+        <div class="toolbar" style="margin-top:12px;">
+          <div class="field" style="min-width:240px;">
+            <label>Email ng protocol officer</label>
+            <input type="email" id="protoEmail" placeholder="email@example.com">
+          </div>
+          <button class="btn btn-gold" id="btnProtoPublish">&#128228; I-publish</button>
+          <button class="btn" id="btnProtoRevoke">&#128683; Bawiin</button>
+        </div>
+        <div id="protoList" style="margin-top:12px;"></div>
+      </div>
+
       <div class="card" id="admitCard" hidden>
         <h2><span class="num">&#127915;</span> Admission Slip at Excuse Letter</h2>
         <p style="font-size:12.5px; color:var(--ink-soft); line-height:1.7;">
@@ -1759,10 +1778,12 @@
         </p>
         <p style="font-size:11.5px; color:var(--ink-soft); line-height:1.7; margin-top:7px;
           border-left:3px solid var(--gold-soft); padding-left:10px;">
-          <strong>Tungkol sa Modular (M):</strong> hindi ito binabanggit ng handbook — gawi ito ng paaralan.
-          Itinuturing dito na excused, kaya hindi ito nagiging absent at walang kaukulang admission slip.
-          Pero kailangan pa rin ng <strong>excuse letter</strong> ayon sa 1.4. Kapag umabot sa tatlong araw,
-          may paalala na baka hingan din ng slip ayon sa 1.5.
+          <strong>Tungkol sa Excused (E):</strong> hindi ito nagiging absent, kaya walang kaukulang
+          admission slip. Pero kailangan pa rin ng <strong>excuse letter</strong> ayon sa 1.4 — kaya
+          nananatili ang utang hangga't <em>chat</em>, <em>pasalita</em>, o <em>wala pang patunay</em> ang
+          nakatala. Kapag naitala mo nang <em>sulat ng magulang</em> o <em>medical certificate</em>,
+          kusang nawawala ang utang. Sa tatlo o higit pang araw, may paalala na baka hingan din ng slip
+          ayon sa 1.5 — depende sa gawi ng paaralan.
         </p>
         <div id="admitSummary" style="margin-top:12px;"></div>
         <div id="admitList" style="margin-top:12px;"></div>
@@ -1886,7 +1907,7 @@
         </div>
         <button class="btn btn-sm" id="btnGcMessage">&#128172; Bumuo ng mensahe sa GC</button>
         <div class="spacer"></div>
-        <span style="font-size:11.5px; color:var(--ink-soft);">Click a date sa column header para markahan bilang <strong>No Class</strong>. Click ang cell ng estudyante para i-cycle: <strong style="color:var(--ok);">Present</strong> → <strong style="color:var(--danger);">Absent</strong> → <strong style="color:#a3690a;">Late</strong> → <strong style="color:var(--male);">Modular/Distance</strong>. 3 Late = 1 Absent (auto-compute) &mdash; ang ikatlong late ay may <strong>*</strong> at pulang border, at 'yun ang lalagyan ng <strong>x</strong> sa SF2.</span>
+        <span style="font-size:11.5px; color:var(--ink-soft);">Click a date sa column header para markahan bilang <strong>No Class</strong>. Click ang cell ng estudyante para i-cycle: <strong style="color:var(--ok);">Present</strong> → <strong style="color:var(--danger);">Absent</strong> → <strong style="color:#a3690a;">Late</strong> → <strong style="color:var(--male);">Excused</strong>. 3 Late = 1 Absent (auto-compute) &mdash; ang ikatlong late ay may <strong>*</strong> at pulang border, at 'yun ang lalagyan ng <strong>x</strong> sa SF2. <strong>Right click</strong> sa isang <strong style="color:var(--male);">E</strong> para ilagay ang patunay (sulat, chat, medical) at ang dahilan &mdash; ang <strong>E?</strong> ay walang patunay pa.</span>
       </div>
 
       <div class="card">
@@ -2335,6 +2356,7 @@ async function handleSuccessfulLogin(user){
       // Simulan agad ang pakikinig sa secretary, kahit nasa ibang tab —
       // dito nakasalalay ang araw-araw na pagiging updated ng attendance.
       if(typeof secStartListening === 'function') secStartListening();
+      if(typeof protoStartListening === 'function') protoStartListening();
     } else {
       // existing account somehow has no cloud doc yet — default to blank
       // rather than silently uploading whatever is sitting in local storage
@@ -8797,6 +8819,7 @@ function secSchedulePush(){
     try{
       await fbDb.collection('class_attendance').doc(secClassId()).update({
         marks: secLocalMarks(),
+        excuses: secLocalExcuses(),
         updatedAt: Date.now(),
         updatedBy: 'teacher'
       });
@@ -8820,6 +8843,8 @@ async function secStartListening(){
 
         secApplyingRemote = true;
         const res = secApplyMarks(data.marks);
+        const exc = secApplyExcuses(data.excuses);
+        if(exc) res.applied += exc;
         secApplyingRemote = false;
 
         localStorage.setItem(SEC_SEEN_KEY, String(data.updatedAt || 0));
@@ -8921,6 +8946,7 @@ async function secFindDoc(){
     /* Ilipat ang lahat sa dokumentong pinangalanan sa UID. */
     if(docs.length > 1 || !exact){
       const mergedMarks = {};
+      const mergedExcuses = {};
       const mergedLog = [];
       /* Mula sa pinakaluma papuntang pinakabago, para ang bagong halaga
          ang mananaig sa tuwing may magkasalungat. */
@@ -8928,6 +8954,9 @@ async function secFindDoc(){
         const dd = d.data();
         Object.keys(dd.marks || {}).forEach(dateKey=>{
           mergedMarks[dateKey] = Object.assign({}, mergedMarks[dateKey] || {}, dd.marks[dateKey]);
+        });
+        Object.keys(dd.excuses || {}).forEach(dateKey=>{
+          mergedExcuses[dateKey] = Object.assign({}, mergedExcuses[dateKey] || {}, dd.excuses[dateKey]);
         });
         (dd.log || []).forEach(e => mergedLog.push(e));
       });
@@ -8947,6 +8976,7 @@ async function secFindDoc(){
         roster: newest.roster || secRoster(),
         holidays: newest.holidays || [],
         marks: mergedMarks,
+        excuses: mergedExcuses,
         log: mergedLog.slice(-30),
         updatedAt: Date.now(),
         updatedBy: 'teacher'
@@ -8975,6 +9005,51 @@ async function secFindDoc(){
     console.warn('Hindi mahanap ang class doc', err);
     return null;
   }
+}
+
+/* Ang mga dahilan ng excused, isinasalin sa petsa para sa cloud. */
+function secLocalExcuses(){
+  const out = {};
+  Object.keys(attendance || {}).forEach(month=>{
+    const md = attendance[month];
+    if(!md || !md.excuses) return;
+    const year = yearForMonth(month), mi = MONTH_JS_INDEX[month];
+    if(mi === undefined) return;
+    Object.keys(md.excuses).forEach(sid=>{
+      Object.keys(md.excuses[sid]).forEach(day=>{
+        const key = secDateKey(new Date(year, mi, parseInt(day)));
+        if(!out[key]) out[key] = {};
+        out[key][sid] = md.excuses[sid][day];
+      });
+    });
+  });
+  return out;
+}
+
+/* Ibinabalik ang mga dahilan mula sa petsa papuntang buwan at araw. */
+function secApplyExcuses(excuses){
+  let applied = 0;
+  Object.keys(excuses || {}).forEach(dateKey=>{
+    const d = new Date(dateKey + 'T00:00:00');
+    if(isNaN(d)) return;
+    const month = MONTHS_ORDER.find(m =>
+      MONTH_JS_INDEX[m] === d.getMonth() && yearForMonth(m) === d.getFullYear());
+    if(!month) return;
+    const md = getMonthData(month);
+    if(!md.excuses) md.excuses = {};
+    Object.keys(excuses[dateKey]).forEach(sid=>{
+      if(!students.some(s => s.id === sid)) return;
+      const incoming = excuses[dateKey][sid] || {};
+      if(!md.excuses[sid]) md.excuses[sid] = {};
+      const cur = md.excuses[sid][d.getDate()] || {};
+      if(cur.proof !== incoming.proof || cur.reason !== incoming.reason){
+        md.excuses[sid][d.getDate()] = { proof: incoming.proof || 'none', reason: incoming.reason || '' };
+        applied++;
+      }
+    });
+  });
+  if(applied) saveAttendance();
+  return applied;
 }
 
 async function secPublish(){
@@ -9026,6 +9101,8 @@ async function secPublish(){
       return acc;
     }, []),
     marks: secLocalMarks(),
+    excuses: secLocalExcuses(),
+    proofOptions: EXCUSE_PROOF.map(p=>({ k:p.k, label:p.label, valid:p.valid })),
     updatedAt: Date.now(),
     updatedBy: 'teacher'
   });
@@ -9062,6 +9139,8 @@ async function secPull(options){
      kung sino ang huling sumulat, dahil puwedeng ang adviser mismo ang
      huling nag-publish pagkatapos mag-encode ng secretary. */
   const res = secApplyMarks(data.marks);
+  const exc = secApplyExcuses(data.excuses);
+  if(exc) res.applied += exc;
   secRenderLog(data);
   if(res.applied){
     renderAttendanceView();
@@ -10009,6 +10088,139 @@ function renderEcAnalysis(){
 }
 
 /* =========================================================
+   PROTOCOL OFFICER — ulat ng minor offenses
+   Estudyante rin ang officer, kaya minor offenses lamang ang
+   saklaw niya at ULAT ang ipinapadala — hindi agad opisyal na
+   talaan. Ang adviser ang nag-aaproba bago ito maging insidente.
+   ========================================================= */
+const PROTO_SEEN_KEY = 'sms_protocol_seen_v1';
+let protoReports = [];     // mga nakabinbing ulat mula sa cloud
+
+function protoEmail(){ return (setupData.protocolEmail || '').trim().toLowerCase(); }
+function protoDocId(){ return (currentUser && currentUser.uid) || ''; }
+
+/* Minor offenses lamang — ito ang nakikita at napapatunayan sa tingin. */
+function protoOffenseList(){
+  const g = OFFENSE_CATALOG.find(x => x.cat === 'minor');
+  return g ? g.items.map(([code, text])=>({ code, text })) : [];
+}
+
+async function protoPublish(){
+  if(!fbAvailable || !currentUser){ showToast('Kailangan munang naka-sign in sa cloud.', true); return; }
+  const email = (document.getElementById('protoEmail').value || '').trim().toLowerCase();
+  if(!email){ showToast('Maglagay ng email ng protocol officer.', true); return; }
+  setupData.protocolEmail = email;
+  saveSetup(setupData);
+
+  const ref = fbDb.collection('protocol_reports').doc(protoDocId());
+  const prev = await ref.get().catch(()=>null);
+  const keep = (prev && prev.exists ? prev.data().reports : []) || [];
+
+  await ref.set({
+    ownerUid: currentUser.uid,
+    officerEmail: email,
+    schoolName: setupData.schoolName || '',
+    gradeLevel: setupData.gradeLevel || gctx.gradeLevel || '',
+    section: setupData.section || '',
+    schoolYear: setupData.schoolYear || '',
+    adviser: setupData.adviser || '',
+    roster: students.filter(s => isActiveStatus(s) || !s.statusDate).map(s=>({
+      id: s.id,
+      name: `${s.lastName || ''}, ${s.firstName || ''}`.replace(/^,\s*/,'').trim().toUpperCase(),
+      sex: s.sex || 'MALE'
+    })),
+    offenses: protoOffenseList(),
+    reports: keep,
+    updatedAt: Date.now(),
+    updatedBy: 'teacher'
+  });
+  showToast('Na-publish na. Puwede nang mag-sign up ang protocol officer.');
+  protoStartListening();
+  renderProtoView();
+}
+
+async function protoRevoke(){
+  if(!fbAvailable || !currentUser) return;
+  if(!confirm('Babawiin ang access ng protocol officer. Mananatili ang mga naaprubahang insidente. Ituloy?')) return;
+  protoStopListening();
+  await fbDb.collection('protocol_reports').doc(protoDocId()).delete().catch(()=>{});
+  setupData.protocolEmail = '';
+  saveSetup(setupData);
+  protoReports = [];
+  document.getElementById('protoEmail').value = '';
+  renderProtoView();
+  showToast('Nabawi na ang access.');
+}
+
+/* Pakikinig sa bagong ulat. */
+let protoUnsub = null;
+function protoStopListening(){ if(protoUnsub){ try{ protoUnsub(); }catch(e){} protoUnsub = null; } }
+function protoStartListening(){
+  protoStopListening();
+  if(!fbAvailable || !currentUser || !protoEmail()) return;
+  try{
+    protoUnsub = fbDb.collection('protocol_reports').doc(protoDocId())
+      .onSnapshot(snap=>{
+        if(!snap.exists) return;
+        const data = snap.data();
+        protoReports = (data.reports || []).filter(r => r.status === 'pending');
+        const seen = parseInt(localStorage.getItem(PROTO_SEEN_KEY) || '0');
+        if(data.updatedBy === 'officer' && (data.updatedAt || 0) > seen && protoReports.length){
+          showToast(`${protoReports.length} bagong ulat mula sa protocol officer.`);
+          localStorage.setItem(PROTO_SEEN_KEY, String(data.updatedAt || 0));
+        }
+        const view = document.getElementById('view-anecdotal');
+        if(view && !view.hidden) renderProtoView();
+      }, err => console.warn('protocol listener', err));
+  }catch(err){ console.warn(err); }
+}
+
+/* Aprubahan: nagiging opisyal na insidente sa Anecdotal Record. */
+async function protoApprove(reportId){
+  const r = protoReports.find(x => x.id === reportId);
+  if(!r) return;
+  const s = students.find(x => x.id === r.studentId);
+  if(!s){ showToast('Wala na sa masterlist ang mag-aaral na ito.', true); return; }
+  const o = offenseByCode(r.code);
+
+  if(!anecdotal[s.id]) anecdotal[s.id] = [];
+  anecdotal[s.id].push({
+    date: r.date,
+    category: r.code,
+    incident: (o ? `${o.text.charAt(0).toLowerCase()}${o.text.slice(1)} (${o.code})` : '')
+      + (r.note ? ` — ${r.note}` : ''),
+    promise: 'hindi ko na po uulitin ang nagawa ko at susunod na po ako sa patakaran ng paaralan',
+    consequence: 'ipatatawag po ang aking magulang at isasangguni sa School Discipline Committee',
+    notes: `Iniulat ni ${r.by || 'protocol officer'} noong ${formsDate(r.date)}.`,
+    action: suggestedAction('minor', (offenseTally(s.id, -1).counts.minor || 0) + 1),
+    months: [],
+    at: Date.now()
+  });
+  saveAnecdotal();
+  await protoSetStatus(reportId, 'approved');
+  renderAnecdotalView();
+  showToast(`Naitala na ang ulat kay ${s.lastName}.`);
+}
+
+async function protoReject(reportId){
+  const why = prompt('Bakit hindi tinanggap ang ulat na ito? (makikita ng officer)');
+  if(why === null) return;
+  await protoSetStatus(reportId, 'rejected', why.trim());
+  renderProtoView();
+}
+
+async function protoSetStatus(reportId, status, note){
+  if(!fbAvailable || !currentUser) return;
+  const ref = fbDb.collection('protocol_reports').doc(protoDocId());
+  const snap = await ref.get();
+  if(!snap.exists) return;
+  const all = (snap.data().reports || []).map(r =>
+    r.id === reportId ? Object.assign({}, r, { status, teacherNote: note || '', reviewedAt: Date.now() }) : r);
+  await ref.update({ reports: all, updatedAt: Date.now(), updatedBy: 'teacher' });
+  protoReports = all.filter(r => r.status === 'pending');
+}
+
+/* =========================================================
    ANECDOTAL RECORD + KASUNDUAN
    Talaan ng insidente sa klase. Mula rito, nabubuo ang
    opisyal na Kasunduan form ng School Discipline Committee,
@@ -10741,6 +10953,68 @@ function renderAdmission(s){
   });
 }
 
+function renderProtoView(){
+  const host = document.getElementById('protoList');
+  if(!host) return;
+  if(!protoEmail()){
+    host.innerHTML = '<p style="font-size:12.5px; color:var(--ink-soft); margin:0;">'
+      + 'Wala pang naitalagang protocol officer. Maglagay ng email at pindutin ang I-publish.</p>';
+    return;
+  }
+  if(!protoReports.length){
+    host.innerHTML = '<div style="background:#eaf5ee; border:1px solid #c3e0cd; border-radius:var(--radius);'
+      + ' padding:11px 13px; font-size:12.5px; color:var(--ok);">Walang nakabinbing ulat.</div>';
+    return;
+  }
+  host.innerHTML = protoReports.slice().sort((a,b)=> (b.at||0)-(a.at||0)).map(r=>{
+    const s = students.find(x => x.id === r.studentId);
+    const o = offenseByCode(r.code);
+    const name = s ? `${s.lastName || ''}, ${s.firstName || ''}`.replace(/^,\s*/,'').trim() : '(wala na sa listahan)';
+    return `<div style="border:1px solid var(--gold-soft); background:#fdfaf1; border-radius:var(--radius);
+        padding:11px 13px; margin-bottom:8px;">
+      <div style="display:flex; gap:9px; align-items:baseline; flex-wrap:wrap;">
+        <strong style="font-size:13.5px;">${escapeHtml(name)}</strong>
+        <span style="font-size:11.5px; color:var(--ink-soft);">${escapeHtml(formsDate(r.date))}</span>
+        <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
+          background:#f6efdc; color:#7a5c12;">Minor ${escapeHtml(r.code)}</span>
+        <div style="flex:1;"></div>
+        <button class="btn btn-sm btn-gold" data-proto-ok="${escapeHtml(r.id)}">&#10003; Aprubahan</button>
+        <button class="btn btn-sm" data-proto-no="${escapeHtml(r.id)}" style="color:var(--danger);">Tanggihan</button>
+      </div>
+      <div style="font-size:12.5px; margin-top:5px;">${escapeHtml(o ? o.text : r.code)}</div>
+      ${r.note ? `<div style="font-size:12px; color:var(--ink-soft); margin-top:3px; font-style:italic;">${escapeHtml(r.note)}</div>` : ''}
+      <div style="font-size:10.5px; color:var(--ink-soft); margin-top:4px;">Iniulat ni ${escapeHtml(r.by || 'officer')}</div>
+    </div>`;
+  }).join('');
+
+  host.querySelectorAll('[data-proto-ok]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      b.disabled = true;
+      try{ await protoApprove(b.dataset.protoOk); }
+      catch(err){ console.error(err); showToast('May error sa pag-aproba.', true); b.disabled = false; }
+    });
+  });
+  host.querySelectorAll('[data-proto-no]').forEach(b=>{
+    b.addEventListener('click', ()=> protoReject(b.dataset.protoNo));
+  });
+}
+
+(function(){
+  const pub = document.getElementById('btnProtoPublish');
+  if(!pub) return;
+  const wrap = (btn, fn)=>{
+    btn.addEventListener('click', async ()=>{
+      const t = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Sandali...';
+      try{ await fn(); }
+      catch(err){ console.error(err); showToast(secErrorMessage(err, 'write'), true); }
+      finally{ btn.disabled = false; btn.textContent = t; }
+    });
+  };
+  wrap(pub, protoPublish);
+  wrap(document.getElementById('btnProtoRevoke'), protoRevoke);
+})();
+
 function renderAnecdotalView(){
   const src = document.getElementById('letterhead');
   const lh = document.getElementById('anecLetterhead');
@@ -10782,6 +11056,8 @@ function renderAnecdotalView(){
     ctxCard.hidden = true;
   }
 
+  document.getElementById('protoEmail').value = setupData.protocolEmail || '';
+  renderProtoView();
   renderAdmission(sid ? students.find(x=>x.id===sid) : null);
   renderAnecList(sid);
   renderFormsClassList();
@@ -11282,7 +11558,7 @@ function renderSeatPlan(){
   const isAtt = mode === 'attendance';
   document.getElementById('seatDateWrap').style.display = isAtt ? 'block' : 'none';
   document.getElementById('seatHint').textContent = isAtt
-    ? 'Pindutin ang upuan para i-cycle: Present → Absent → Late → Modular.'
+    ? 'Pindutin ang upuan para i-cycle: Present → Absent → Late → Excused.'
     : 'Pumili ng pangalan sa ibaba, tapos pindutin ang upuan. Pindutin ang may laman para alisin.';
   if(isAtt && !document.getElementById('seatDate').options.length) seatFillDates();
 
