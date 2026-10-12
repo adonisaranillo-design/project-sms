@@ -5655,75 +5655,11 @@ function generateTeacherComment(studentId, term){
   }
 
   const subjEnd = parts.length;
-  /* ---- 3) attendance — computed ONLY from this term's months, with
-           bands fine enough that rare lateness isn't scolded ---- */
-  let tAbsent = 0, tLate = 0, tDays = 0;
-  monthsForPeriod(repCtx.curriculum, term).forEach(m=>{
-    const t = studentMonthTotals(studentId, m);
-    tAbsent += t.absent; tLate += t.late; tDays += t.totalDays;
-  });
-  const absentRate = tDays > 0 ? (tAbsent / tDays) * 100 : 0;
-
-  if(tDays > 0){
-    /* Absences are weighted ahead of lateness: missing whole days costs far
-       more learning than arriving late, and five or more in a single term is
-       the point where it has to be named plainly. Lateness is still raised,
-       but as an add-on rather than in place of the absence note. */
-    let absentNote = '';
-    if(tAbsent >= 8){
-      absentNote = pickOne([
-        `Umabot sa ${tAbsent} araw ang kanyang liban ngayong termino — ito ang pinakamalaking hadlang sa kanyang pagkatuto at kailangang matugunan agad.`,
-        `Napakarami ng liban (${tAbsent} araw) ngayong termino; mahalagang mapag-usapan ito ng paaralan at ng pamilya.`
-      ]);
-    } else if(tAbsent >= 5){
-      absentNote = pickOne([
-        `May ${tAbsent} araw siyang liban ngayong termino — mahalagang mabawasan ito upang hindi na malampasan pa ang mga aralin.`,
-        `Umabot sa ${tAbsent} ang kanyang liban ngayong termino; kailangan na itong bigyang-pansin.`
-      ]);
-    } else if(tAbsent >= 3 || absentRate > 8){
-      absentNote = pickOne([
-        `May ${tAbsent} araw na liban ngayong termino na mainam na maiwasan sa susunod.`,
-        `Makatutulong ang mas regular na pagpasok upang hindi mahuli sa mga aralin.`
-      ]);
-    }
-
-    let lateNote = '';
-    if(tLate >= 6){
-      lateNote = pickOne([
-        `Madalas din ang pagka-huli (${tLate} beses) ngayong termino.`,
-        `Kapansin-pansin din ang ${tLate} beses na pagka-huli.`
-      ]);
-    } else if(tLate >= 3){
-      lateNote = pickOne([
-        `May ilang pagka-huli rin na kayang maiwasan sa kaunting pag-aayos ng oras.`,
-        `Kung mababawasan ang pagka-huli, mas masusundan niya ang simula ng aralin.`
-      ]);
-    }
-
-    if(tAbsent === 0 && tLate === 0){
-      parts.push(pickOne([
-        `Perpekto rin ang kanyang pagpasok ngayong termino.`,
-        `Wala siyang liban ni pagka-huli sa buong termino — kapuri-puri.`,
-        `Buong-buo ang kanyang pagdalo sa klase ngayong termino.`
-      ]));
-    } else if(absentNote || lateNote){
-      if(absentNote) parts.push(absentNote);
-      if(lateNote) parts.push(lateNote);
-    } else if(tAbsent === 0 && tLate <= 2){
-      parts.push(pickOne([
-        `Halos hindi siya lumiliban, at bihira lang ang pagka-huli.`,
-        `Maaasahan ang kanyang pagpasok; iilang beses lang siyang na-late.`
-      ]));
-    } else {
-      parts.push(pickOne([
-        `Kakaunti lang ang kanyang liban ngayong termino.`,
-        `Sa kabuuan ay maayos ang kanyang pagdalo sa klase.`
-      ]));
-    }
-  }
-
   const closeStart = parts.length;
-  /* ---- 4) closing, matched to the overall picture ---- */
+  /* ---- 3) closing, matched to the overall picture ----
+     Walang bahagi tungkol sa absences o pagka-huli: akademikong pagganap
+     lamang ang laman ng komento. Nasa SF2 at sa Attendance section ang
+     talaan ng pagdalo. */
   if(gwa >= 90){
     parts.push(pickOne([
       `Ipagpatuloy ang mahusay na gawi.`,
@@ -5745,7 +5681,7 @@ function generateTeacherComment(studentId, term){
   /* Keep the remark inside the 280-character budget the form's comment box
      can hold. Trim by value, not by cutting mid-sentence: the closing
      pleasantry goes first, then the subject notes. The performance opening
-     and the attendance note are never dropped — those carry the substance. */
+     is never dropped — that carries the substance. */
   const assemble = list => list.join(' ').replace(/\s+/g,' ').trim();
   let keep = parts.slice();
   if(assemble(keep).length > COMMENT_SOFT_LIMIT && keep.length > closeStart){
