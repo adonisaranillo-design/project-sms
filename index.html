@@ -150,8 +150,9 @@
     font-size:11px; display:flex;align-items:center;justify-content:center; font-family:'JetBrains Mono',monospace;
   }
 
-  .grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 14px 16px; }
-  .grid.g2{ grid-template-columns: repeat(2,1fr); }
+  .grid{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px 16px; }
+  .grid.g2{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .grid > *{ min-width:0; }
   .field{ display:flex; flex-direction:column; gap:5px; }
   .field.span2{ grid-column: span 2; }
   .field.span3{ grid-column: span 3; }
@@ -759,11 +760,14 @@
 
 <!-- ================= ANECDOTAL ENTRY ================= -->
 <div id="anecOverlay" hidden style="position:fixed; inset:0; z-index:120; background:rgba(20,41,63,.55); display:none; align-items:center; justify-content:center; padding:20px;">
-  <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:620px; max-height:92vh; overflow-y:auto; padding:24px;">
-    <div style="font-family:'Lora',serif; font-weight:600; font-size:16px; color:var(--navy-deep);">Insidente sa klase</div>
-    <div id="anecDlgName" style="font-size:12.5px; color:var(--ink-soft); margin-bottom:16px;"></div>
+  <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:880px; max-height:92vh; display:flex; flex-direction:column; overflow:hidden;">
+    <div style="padding:20px 24px 12px; border-bottom:1px solid var(--line); flex:0 0 auto;">
+      <div style="font-family:'Lora',serif; font-weight:600; font-size:16px; color:var(--navy-deep);">Insidente sa klase</div>
+      <div id="anecDlgName" style="font-size:12.5px; color:var(--ink-soft);"></div>
+    </div>
+    <div id="anecDlgBody" style="flex:1 1 auto; overflow-y:auto; padding:16px 24px 20px;">
 
-    <div class="grid g2">
+    <div class="grid g2" style="grid-template-columns:190px minmax(0,1fr);">
       <div class="field">
         <label>Petsa ng insidente</label>
         <input type="date" id="anecDlgDate">
@@ -775,8 +779,8 @@
           <button class="btn btn-sm" id="anecDlgAddOff" type="button" style="flex:0 0 auto;">&#43;</button>
         </div>
         <div id="anecOffChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:7px;"></div>
-        <div style="font-size:10.5px; color:var(--ink-soft); margin-top:4px;">
-          Puwedeng magdagdag ng higit sa isa. Ang pinakamabigat ang susundin sa hakbang.
+        <div id="anecOffHint" style="font-size:10.5px; color:var(--ink-soft); margin-top:4px;">
+          Pindutin ang + kung higit sa isa ang paglabag. Ang pinakamabigat ang susundin sa hakbang.
         </div>
       </div>
     </div>
@@ -791,7 +795,11 @@
     </div>
 
     <div class="field">
-      <label>Ano ang nangyari (ilalagay ito sa Kasunduan)</label>
+      <label style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <span>Ano ang nangyari (ilalagay ito sa Kasunduan)</span>
+        <button class="btn btn-ghost btn-sm" id="anecDlgFill" type="button" style="padding:3px 9px; font-size:11px; font-weight:500;"
+          title="Bubuo ng mungkahing teksto mula sa napiling paglabag at sa talaan ng pagpasok">&#10024; Punan ng mungkahi</button>
+      </label>
       <textarea id="anecDlgIncident" rows="3" style="width:100%; font-family:inherit; font-size:13px; line-height:1.6; resize:vertical;"
         placeholder="Isulat nang tuwiran at walang paghatol. Hal.: Umalis sa silid nang walang paalam tuwing ikalawang oras noong Okt 1 at Okt 3."></textarea>
     </div>
@@ -869,8 +877,10 @@
     </div>
 
     <div id="anecDlgSuggest" style="margin-top:4px;"></div>
+    </div><!-- /anecDlgBody -->
 
-    <div style="display:flex; gap:8px; justify-content:space-between; margin-top:18px;">
+    <div style="flex:0 0 auto; display:flex; gap:8px; justify-content:space-between; align-items:center;
+      padding:12px 24px; border-top:1px solid var(--line); background:var(--paper-card);">
       <button class="btn" id="anecDlgDelete" style="color:var(--danger);">Burahin</button>
       <div style="display:flex; gap:8px;">
         <button class="btn" id="anecDlgCancel">Kanselahin</button>
@@ -11197,7 +11207,11 @@ function anecFromAttendance(studentId){
   const lines = monthBreakdownLines(s, months);
 
   openAnecDialog(studentId, null);
+  /* Itinatala agad ang 1.1 bilang napiling paglabag — hindi sapat ang
+     pagpalit ng select, dahil ang chip ang sinusuri sa pag-save. */
+  anecPicked = ['1.1'];
   document.getElementById('anecDlgCategory').value = '1.1';
+  anecRenderChips();
   document.getElementById('anecMonthsWrap').style.display = 'block';
   anecRenderMonths(s, months);
   document.getElementById('anecDlgIncident').value = lines.map(l => '• ' + l).join('\n');
@@ -11674,12 +11688,15 @@ function openAnecDialog(studentId, idx){
     ? ((entry.categories && entry.categories.length) ? entry.categories.slice()
        : (entry.category ? [entry.category] : []))
     : [];
-  /* Kapag may laman nang naitala, huwag nang palitan ang sinulat ng guro. */
-  anecAuto = {
-    incident:    !entry || !(entry.incident || '').trim(),
-    promise:     !entry || !(entry.promise || '').trim(),
-    consequence: !entry || !(entry.consequence || '').trim()
-  };
+  anecMulti = anecPicked.length > 1;
+  /* Blangko ang bagong talaan — ang guro ang magpapasya kung gagamit ng
+     mungkahi, sa pamamagitan ng "Punan ng mungkahi". Sa lumang talaan,
+     ang nasulat na ng guro ang nananatili. */
+  anecAuto = entry
+    ? { incident:    !(entry.incident || '').trim(),
+        promise:     !(entry.promise || '').trim(),
+        consequence: !(entry.consequence || '').trim() }
+    : { incident:false, promise:false, consequence:false };
   catSel.value = (anecPicked[0]) || '1.1';
   document.getElementById('anecDlgIncident').value = entry ? (entry.incident || '') : '';
   document.getElementById('anecDlgPromise').value = entry ? (entry.promise || '') : '';
@@ -11775,9 +11792,18 @@ function anecSyncFromMonths(s){
 /* ---- napiling paglabag sa kasalukuyang dialog ---- */
 let anecPicked = [];        // mga code
 let anecAuto = { incident:true, promise:true, consequence:true };
+/* true kapag maramihang paglabag ang itinatala — huminto na ang pagpapalit. */
+let anecMulti = false;
 
 function anecRenderChips(){
   const host = document.getElementById('anecOffChips');
+  const hint = document.getElementById('anecOffHint');
+  if(hint){
+    hint.textContent = anecMulti
+      ? 'Maramihan: ang bawat pipiliin sa listahan ay naidaragdag na. Ang pinakamabigat ang susundin sa hakbang.'
+      : 'Pindutin ang + kung higit sa isa ang paglabag. Ang pinakamabigat ang susundin sa hakbang.';
+    hint.style.color = anecMulti ? 'var(--navy-deep)' : 'var(--ink-soft)';
+  }
   if(!anecPicked.length){
     host.innerHTML = '<span style="font-size:11.5px; color:var(--danger);">Wala pang napiling paglabag.</span>';
     return;
@@ -11934,14 +11960,38 @@ function anecDocxSetParagraph(xml, index, text){
   });
   const addOffense = ()=>{
     const code = document.getElementById('anecDlgCategory').value;
-    if(!code || anecPicked.includes(code)) return;
+    if(!code){ return false; }
+    if(anecPicked.includes(code)) return false;
     anecPicked.push(code);
     anecSyncTexts();
+    return true;
   };
-  document.getElementById('anecDlgAddOff').addEventListener('click', addOffense);
-  /* Ang unang pagpili ay agad na naidadagdag; ang susunod ay sa + button. */
+  /* Dalawang paraan ng paggamit, at ang + ang nagpapalit sa pagitan nila:
+       — Isang paglabag lang (karaniwan): pumili sa listahan, tapos na.
+         Ang susunod na pagpili ay pumapalit, kaya hindi kailangan ng +.
+       — Higit sa isa: pindutin ang +, at mula noon ay naidaragdag na ang
+         bawat susunod na pipiliin sa listahan sa halip na pumalit. */
+  document.getElementById('anecDlgAddOff').addEventListener('click', ()=>{
+    const code = document.getElementById('anecDlgCategory').value;
+    if(!code) return;
+    if(anecPicked.includes(code)){
+      if(!anecMulti){
+        anecMulti = true;
+        anecRenderChips();
+        showToast('Nakatakda na ang ' + code + '. Pumili pa sa listahan — idaragdag na ito, hindi papalitan.');
+      } else {
+        showToast('Nakadagdag na ang ' + code + '.', true);
+      }
+      return;
+    }
+    anecMulti = true;
+    addOffense();
+    showToast('Naidagdag ang ' + code + '.');
+  });
   document.getElementById('anecDlgCategory').addEventListener('change', ()=>{
-    if(anecPicked.length <= 1){ anecPicked = []; addOffense(); }
+    if(anecMulti){ addOffense(); return; }
+    anecPicked = [];
+    addOffense();
   });
 
   /* Kapag may sinulat ang guro, huminto na ang awtomatikong pagpuno. */
@@ -11949,6 +11999,20 @@ function anecDocxSetParagraph(xml, index, text){
     const el = document.getElementById('anecDlg' + k.charAt(0).toUpperCase() + k.slice(1));
     if(el) el.addEventListener('input', ()=>{ anecAuto[k] = false; });
   });
+  /* Punan ng mungkahi — ang blangkong kahon lang ang pupunan, hindi
+     binubura ang sinulat na ng guro. */
+  document.getElementById('anecDlgFill').addEventListener('click', ()=>{
+    if(!anecPicked.length){ showToast('Pumili muna ng paglabag.', true); return; }
+    let filled = 0;
+    ['incident','promise','consequence'].forEach(k=>{
+      const el = document.getElementById('anecDlg' + k.charAt(0).toUpperCase() + k.slice(1));
+      if(el && !el.value.trim()){ anecAuto[k] = true; filled++; }
+    });
+    if(!filled){ showToast('May laman na ang mga kahon — burahin muna kung papalitan.', true); return; }
+    anecSyncTexts();
+    showToast('Nakabuo ng mungkahi — basahin at i-edit kung kailangan.');
+  });
+
   document.getElementById('anecDlgLrp').addEventListener('change', anecLrpRefresh);
   document.getElementById('anecDlgLrpType').addEventListener('change', anecLrpRefresh);
   document.getElementById('anecDlgAction').addEventListener('change', ()=>{
