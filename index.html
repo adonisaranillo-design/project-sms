@@ -876,6 +876,16 @@
         placeholder="Para sa sarili mong talaan — konteksto, obserbasyon, sinundan na hakbang."></textarea>
     </div>
 
+    <div class="field">
+      <label>Link ng scanned na pormang nilagdaan (Google Drive)</label>
+      <input type="url" id="anecDlgScan" data-no-enter-nav
+        placeholder="I-paste ang share link mula sa Drive — hal. https://drive.google.com/file/d/.../view">
+      <div id="anecScanState" style="font-size:10.5px; color:var(--ink-soft); margin-top:4px; line-height:1.6;">
+        Sa Drive, gawing <strong>Anyone with the link &middot; Viewer</strong> ang file para lumabas ang preview dito.
+        Kung Restricted ito, bubuksan pa rin ang link sa Drive — doon ka lang makakapag-sign in.
+      </div>
+    </div>
+
     <div id="anecDlgSuggest" style="margin-top:4px;"></div>
     </div><!-- /anecDlgBody -->
 
@@ -886,6 +896,26 @@
         <button class="btn" id="anecDlgCancel">Kanselahin</button>
         <button class="btn btn-primary" id="anecDlgSave">I-save</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= PREVIEW NG SCANNED NA PORMA ================= -->
+<div id="scanOverlay" hidden style="position:fixed; inset:0; z-index:140; background:rgba(20,41,63,.72); display:none; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:var(--paper-card); border-radius:14px; box-shadow:var(--shadow); width:100%; max-width:980px; height:88vh; display:flex; flex-direction:column; overflow:hidden;">
+    <div style="padding:13px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex:0 0 auto;">
+      <div style="min-width:0;">
+        <div style="font-family:'Lora',serif; font-weight:600; font-size:14.5px; color:var(--navy-deep);">Scanned na porma</div>
+        <div id="scanPrevCap" style="font-size:11.5px; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+      </div>
+      <div style="flex:1;"></div>
+      <button class="btn btn-sm" id="scanPrevOpen">&#128279; Buksan sa Drive</button>
+      <button class="btn btn-sm" id="scanPrevClose">Isara</button>
+    </div>
+    <div id="scanPrevBody" style="flex:1 1 auto; overflow:auto; background:#2b3440;"></div>
+    <div style="flex:0 0 auto; padding:9px 18px; border-top:1px solid var(--line); font-size:10.5px; color:var(--ink-soft);">
+      Kung blangko ang lalabas, Restricted pa ang file sa Drive. Pindutin ang &ldquo;Buksan sa Drive&rdquo; —
+      doon ka puwedeng mag-sign in, o palitan ang access sa <strong>Anyone with the link &middot; Viewer</strong>.
     </div>
   </div>
 </div>
@@ -10627,7 +10657,7 @@ const DO006_PENALTY = {
   do1: [
     'Written reprimand at parental notice sa pamamagitan ng pormal na komunikasyon',
     'Written reprimand at pagpapatawag sa magulang gamit ang Call Slip (Annex K)',
-    'Suspension at iba pang hakbang ayon sa paaralan'
+    'Suspension na hindi hihigit sa 3 araw, may alternative learning modalities'
   ],
   do2: [
     'Suspension na hindi hihigit sa 5 araw, may alternative learning modalities, at referral sa Social Welfare Development Office',
@@ -10994,6 +11024,15 @@ const ACTION_TAKEN = [
   { k:'iact',        label:'I ACT Program + Community Service 11–15 oras', cat:'major', nth:3 },
   { k:'transfer',    label:'Ilipat sa ibang paaralan (current SY)',      cat:'grave', nth:2 },
   { k:'referral',    label:'Referral sa proper authority',               cat:'constitutional', nth:1 },
+  /* ---- DO 006, s. 2026 (Annex I) — hiwalay sa hagdan ng handbook ---- */
+  { k:'do_wr_notice', label:'Written Reprimand + parental notice (DO 006)',            cat:'do1', nth:1 },
+  { k:'do_wr_call',   label:'Written Reprimand + Call Slip, Annex K (DO 006)',         cat:'do1', nth:2 },
+  { k:'do_susp3',     label:'Suspension ≤3 araw + alternative learning (DO 006)',      cat:'do1', nth:3 },
+  { k:'do_susp5',     label:'Suspension ≤5 araw + ALM + referral sa SWDO (DO 006)',    cat:'do2', nth:1 },
+  { k:'do_nonread',   label:'Non-readmission + referral sa SWDO (DO 006)',             cat:'do2', nth:2 },
+  { k:'do_exclude',   label:'Exclusion + referral sa SWDO (DO 006)',                   cat:'do2', nth:3 },
+  { k:'do3_nonread',  label:'Non-readmission + referral sa PNP/SWDO (DO 006 — 3rd level)', cat:'do3', nth:1 },
+  { k:'do3_exclude',  label:'Exclusion + referral sa PNP/SWDO (DO 006 — 3rd level)',       cat:'do3', nth:2 },
   { k:'conference',  label:'Parent conference',                          cat:null, nth:null },
   { k:'homevisit',   label:'Home visitation',                            cat:null, nth:null },
   { k:'guidance',    label:'Isinangguni sa Guidance Office',             cat:null, nth:null },
@@ -11007,10 +11046,11 @@ function actionLabel(k){
 }
 /* Ang mungkahing aksyon ayon sa antas at pang-ilang paglabag. */
 function suggestedAction(cat, nth){
-  /* Ang DO 006 ay may sariling parusa — hindi ito mula sa handbook. */
-  if(cat === 'do1' || cat === 'do2' || cat === 'do3') return 'other';
   const hit = ACTION_TAKEN.find(a => a.cat === cat && a.nth === Math.min(nth, 3));
   if(hit) return hit.k;
+  /* Sa DO 006, dalawang antas lang ang nakalista sa ikatlong lebel —
+     ang ikatlo pataas ay nananatiling exclusion. */
+  if(cat === 'do3') return 'do3_exclude';
   if(cat === 'grave') return nth >= 2 ? 'transfer' : 'iact';
   if(cat === 'constitutional') return 'referral';
   return 'oral';
@@ -11615,6 +11655,8 @@ function renderAnecList(filterSid){
         <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px;
           background:#fbeeed; color:var(--danger);">${ordinalEng(anecOffenseNumber(s.id, idx))} offense</span>
         <div style="flex:1;"></div>
+        ${e.scan ? `<button class="btn btn-sm" data-anec-scan="${s.id}:${idx}"
+          title="Tingnan ang scanned na nilagdaang porma">&#128206; Scanned</button>` : ''}
         <button class="btn btn-sm" data-anec-edit="${s.id}:${idx}">Baguhin</button>
         <button class="btn btn-sm btn-gold" data-anec-forms="${s.id}:${idx}">&#128451; Mga Form</button>
       </div>
@@ -11654,11 +11696,14 @@ function renderAnecList(filterSid){
       openFormPicker(sid, parseInt(idx));
     });
   });
-
-  host.querySelectorAll('[data-anec-edit]').forEach(b=>{
+  host.querySelectorAll('[data-anec-scan]').forEach(b=>{
     b.addEventListener('click', ()=>{
-      const [sid, idx] = b.dataset.anecEdit.split(':');
-      openAnecDialog(sid, parseInt(idx));
+      const [sid, idx] = b.dataset.anecScan.split(':');
+      const e = (anecdotal[sid] || [])[parseInt(idx)];
+      const st = students.find(x => x.id === sid);
+      if(!e || !e.scan) return;
+      const nm = st ? `${st.lastName || ''}, ${st.firstName || ''}`.replace(/^,\s*/,'').trim() : '';
+      openScanPreview(e.scan, `${nm}${e.date ? ' \u00b7 ' + formsDate(e.date) : ''}`);
     });
   });
 }
@@ -11702,6 +11747,8 @@ function openAnecDialog(studentId, idx){
   document.getElementById('anecDlgPromise').value = entry ? (entry.promise || '') : '';
   document.getElementById('anecDlgConsequence').value = entry ? (entry.consequence || '') : '';
   document.getElementById('anecDlgNotes').value = entry ? (entry.notes || '') : '';
+  document.getElementById('anecDlgScan').value = entry ? (entry.scan || '') : '';
+  anecScanRefresh();
   document.getElementById('anecDlgGuardian').value = s.guardian || '';
 
   document.getElementById('anecDlgLrp').checked = !!(entry && entry.lrp);
@@ -11825,6 +11872,89 @@ function anecRenderChips(){
       anecSyncTexts();
     });
   });
+}
+
+/* =========================================================
+   SCANNED NA KOPYA NG NILAGDAANG PORMA
+   Ang file mismo ay nasa Google Drive ng guro — ang link lamang
+   ang itinatago rito. Walang kopya ng dokumento sa sistema.
+   ========================================================= */
+
+/* Hanapin ang file id mula sa iba't ibang anyo ng Drive link. */
+function driveFileId(url){
+  if(!url) return '';
+  const pats = [
+    /\/file\/d\/([a-zA-Z0-9_-]{10,})/,      // .../file/d/<id>/view
+    /[?&]id=([a-zA-Z0-9_-]{10,})/,           // open?id=<id>
+    /\/d\/([a-zA-Z0-9_-]{10,})/             // docs/.../d/<id>
+  ];
+  for(const re of pats){ const m = url.match(re); if(m) return m[1]; }
+  return '';
+}
+function scanKind(url){
+  if(!url) return null;
+  const u = url.trim();
+  if(!/^https?:\/\//i.test(u)) return null;
+  if(driveFileId(u)) return 'drive';
+  if(/\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(u)) return 'image';
+  if(/\.pdf(\?|$)/i.test(u)) return 'pdf';
+  return 'other';
+}
+/* Ang URL na ipapakita sa loob ng preview. */
+function scanEmbedUrl(url){
+  const id = driveFileId(url);
+  if(id) return 'https://drive.google.com/file/d/' + id + '/preview';
+  return url;
+}
+
+/* Sabihin agad kung mapi-preview ba ang ipinasok na link. */
+function anecScanRefresh(){
+  const el = document.getElementById('anecDlgScan');
+  const out = document.getElementById('anecScanState');
+  if(!el || !out) return;
+  const url = el.value.trim();
+  const base = 'Sa Drive, gawing <strong>Anyone with the link &middot; Viewer</strong> ang file para lumabas ang preview dito.';
+  if(!url){ out.innerHTML = base; out.style.color = 'var(--ink-soft)'; return; }
+  const kind = scanKind(url);
+  if(!kind){
+    out.innerHTML = 'Hindi mukhang wastong link — dapat nagsisimula sa https://';
+    out.style.color = 'var(--danger)'; return;
+  }
+  if(kind === 'drive'){
+    out.innerHTML = '&#10003; Google Drive na file — mapi-preview ito sa loob ng sistema. ' + base;
+    out.style.color = 'var(--navy)'; return;
+  }
+  if(kind === 'image' || kind === 'pdf'){
+    out.innerHTML = '&#10003; Diretsong ' + (kind === 'pdf' ? 'PDF' : 'larawan') + ' — mapi-preview ito.';
+    out.style.color = 'var(--navy)'; return;
+  }
+  out.innerHTML = 'Hindi ito Drive link. Susubukan pa ring ipakita, pero baka sa bagong tab na lang bumukas.';
+  out.style.color = 'var(--ink-soft)';
+}
+
+let scanPrevUrl = '';
+function openScanPreview(url, caption){
+  const kind = scanKind(url);
+  if(!kind){ showToast('Hindi wastong link.', true); return; }
+  scanPrevUrl = url;
+  document.getElementById('scanPrevCap').textContent = caption || '';
+  const host = document.getElementById('scanPrevBody');
+  if(kind === 'image'){
+    host.innerHTML = `<img src="${escapeHtml(url)}" alt="Scanned na porma"
+      style="max-width:100%; max-height:100%; object-fit:contain; display:block; margin:0 auto;">`;
+  } else {
+    host.innerHTML = `<iframe src="${escapeHtml(scanEmbedUrl(url))}" title="Scanned na porma"
+      style="width:100%; height:100%; border:0; background:#fff;" allow="autoplay"></iframe>`;
+  }
+  const ov = document.getElementById('scanOverlay');
+  ov.hidden = false; ov.style.display = 'flex';
+}
+function closeScanPreview(){
+  const ov = document.getElementById('scanOverlay');
+  ov.hidden = true; ov.style.display = 'none';
+  /* Linisin ang iframe para huminto ang anumang naglo-load. */
+  document.getElementById('scanPrevBody').innerHTML = '';
+  scanPrevUrl = '';
 }
 
 /* Awtomatikong pinupunan ang tatlong kahon mula sa napiling paglabag.
@@ -12017,9 +12147,25 @@ function anecDocxSetParagraph(xml, index, text){
   document.getElementById('anecDlgLrpType').addEventListener('change', anecLrpRefresh);
   document.getElementById('anecDlgAction').addEventListener('change', ()=>{
     const a = ACTION_TAKEN.find(x => x.k === document.getElementById('anecDlgAction').value);
+    const src = a && a.cat && a.cat.startsWith('do')
+      ? 'DepEd Order 006, s. 2026 (Annex I)' : 'handbook';
+    const lvl = a && a.cat ? (GRAVITY[a.cat] || {}).label || a.cat : '';
     document.getElementById('anecActionHint').textContent = a && a.cat
-      ? `Ayon sa handbook, ito ang nakatakda sa ika-${a.nth} na ${a.cat} offense.` : '';
+      ? `Ayon sa ${src}, ito ang nakatakda sa ika-${a.nth} na ${lvl} offense.` : '';
   });
+  document.getElementById('anecDlgScan').addEventListener('input', anecScanRefresh);
+
+  document.getElementById('scanPrevClose').addEventListener('click', closeScanPreview);
+  document.getElementById('scanPrevOpen').addEventListener('click', ()=>{
+    if(scanPrevUrl) window.open(scanPrevUrl, '_blank', 'noopener');
+  });
+  document.getElementById('scanOverlay').addEventListener('click', (ev)=>{
+    if(ev.target.id === 'scanOverlay') closeScanPreview();
+  });
+  document.addEventListener('keydown', (ev)=>{
+    if(ev.key === 'Escape' && document.getElementById('scanOverlay').style.display === 'flex') closeScanPreview();
+  });
+
   document.getElementById('anecDlgCancel').addEventListener('click', closeAnecDialog);
   document.getElementById('anecOverlay').addEventListener('click', (ev)=>{
     if(ev.target.id === 'anecOverlay') closeAnecDialog();
@@ -12047,6 +12193,7 @@ function anecDocxSetParagraph(xml, index, text){
       promise:     document.getElementById('anecDlgPromise').value.trim(),
       consequence: document.getElementById('anecDlgConsequence').value.trim(),
       notes:       document.getElementById('anecDlgNotes').value.trim(),
+      scan:        document.getElementById('anecDlgScan').value.trim(),
       at:          Date.now()
     };
     if(!entry.date){ showToast('Kailangan ng petsa.', true); return; }
